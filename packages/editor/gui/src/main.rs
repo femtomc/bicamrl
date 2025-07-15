@@ -7,10 +7,10 @@ mod fonts;
 mod components;
 mod sse;
 
-use iced::widget::{button, column, container, row, scrollable, text, text_input, Column, Space};
-use iced::{Element, Length, Subscription, Task as Command};
+use iced::widget::{button, column, container, row, scrollable, text, text_input, Column, Space, Stack};
+use iced::{Element, Length, Subscription, Task as Command, Theme, Color, Border, Shadow, Vector};
 use iced::time::{self, Duration};
-use state::{Action, AppState, update, generate_ubuntu_style_name};
+use state::{Action, AppState, update};
 use types::*;
 use std::sync::mpsc;
 use std::collections::HashMap;
@@ -57,7 +57,13 @@ enum Message {
     PermissionResponseSent(Result<(), String>),
     SSEEvent(SSEEventData),
     WorktreesLoaded(Result<Vec<Worktree>, String>),
+    OpenWorktreeDialog,
+    CloseWorktreeDialog,
+    WorktreeBranchNameChanged(String),
+    WorktreeBaseBranchChanged(String),
+    WorktreeCustomPathChanged(String),
     CreateWorktree,
+    WorktreeCreated(Result<Worktree, String>),
     SelectWorktree(String),
 }
 
@@ -357,6 +363,13 @@ impl BickyApp {
                     self.handle_sse_event(event);
                 }
                 
+                // Auto-clear notifications after 5 seconds
+                if let Some((_, timestamp)) = &self.state.notification {
+                    if timestamp.elapsed().as_secs() >= 5 {
+                        update(&mut self.state, Action::ClearNotification);
+                    }
+                }
+                
                 // Still need to redraw for spinner animation
                 if let Some(conv_idx) = self.state.active_conversation {
                     if let Some(conv) = self.state.conversations.get(conv_idx) {
@@ -430,23 +443,64 @@ impl BickyApp {
                 Command::none()
             }
             
+            Message::OpenWorktreeDialog => {
+                update(&mut self.state, Action::OpenWorktreeDialog);
+                Command::none()
+            }
+            
+            Message::CloseWorktreeDialog => {
+                update(&mut self.state, Action::CloseWorktreeDialog);
+                Command::none()
+            }
+            
+            Message::WorktreeBranchNameChanged(name) => {
+                update(&mut self.state, Action::UpdateWorktreeBranchName(name));
+                Command::none()
+            }
+            
+            Message::WorktreeBaseBranchChanged(branch) => {
+                update(&mut self.state, Action::UpdateWorktreeBaseBranch(branch));
+                Command::none()
+            }
+            
+            Message::WorktreeCustomPathChanged(path) => {
+                update(&mut self.state, Action::UpdateWorktreeCustomPath(path));
+                Command::none()
+            }
+            
             Message::CreateWorktree => {
-                // Create worktree with generated name
-                let api = self.api_client.clone();
-                let branch_name = generate_ubuntu_style_name();
-                Command::perform(
-                    async move {
-                        api.create_worktree(CreateWorktreeRequest {
-                            branch: branch_name,
-                            base_branch: None,
-                            path: None,
-                        }).await
-                    },
-                    |result| match result {
-                        Ok(worktree) => Message::SelectWorktree(worktree.id),
-                        Err(err) => Message::WorktreesLoaded(Err(err)),
+                if let Some(dialog) = &self.state.worktree_dialog {
+                    if dialog.branch_name.is_empty() {
+                        update(&mut self.state, Action::WorktreeCreationFailed("Branch name is required".to_string()));
+                        return Command::none();
                     }
-                )
+                    
+                    let api = self.api_client.clone();
+                    let request = CreateWorktreeRequest {
+                        branch: dialog.branch_name.clone(),
+                        base_branch: Some(dialog.base_branch.clone()),
+                        path: if dialog.custom_path.is_empty() { None } else { Some(dialog.custom_path.clone()) },
+                    };
+                    
+                    Command::perform(
+                        async move { api.create_worktree(request).await },
+                        Message::WorktreeCreated
+                    )
+                } else {
+                    Command::none()
+                }
+            }
+            
+            Message::WorktreeCreated(result) => {
+                match result {
+                    Ok(worktree) => {
+                        update(&mut self.state, Action::WorktreeCreated(worktree));
+                    }
+                    Err(err) => {
+                        update(&mut self.state, Action::WorktreeCreationFailed(err));
+                    }
+                }
+                Command::none()
             }
         }
     }
@@ -548,71 +602,123 @@ impl BickyApp {
         let active_conversation = self.state.active_conversation
             .and_then(|idx| self.state.conversations.get(idx));
         
-        // Build worktree info header
-        let worktree_header = if let Some(worktree) = &self.state.current_worktree {
-            let branch_name = worktree.path
-                .split('/')
-                .last()
-                .unwrap_or("main");
+        // Build worktree info header with selector
+        let worktree_header = {
+            let mut header_content = row![
+                text("🌿").size(14).font(fonts::UNICODE_FONT),
+            ]
+            .spacing(10)
+            .align_y(iced::Alignment::Center);
             
-            Some(
-                container(
-                    row![
-                        text("🌿").size(14).font(fonts::UNICODE_FONT),
-                        text(format!("Working in branch: {}", branch_name))
+            // Add worktree display and quick switcher
+            if !self.state.available_worktrees.is_empty() {
+                // Current worktree display
+                if let Some(worktree) = &self.state.current_worktree {
+                    let branch_name = worktree.branch
+                        .as_ref()
+                        .and_then(|b| b.strip_prefix("refs/heads/"))
+                        .unwrap_or("unknown");
+                    
+                    header_content = header_content.push(
+                        text(format!("Working in: {}", branch_name))
                             .size(13)
                             .font(fonts::BERKELEY_MONO)
-                            .color(theme::Colors::TEXT_DIM),
-                        Space::with_width(10),
-                        text(&worktree.path)
-                            .size(11)
+                            .color(theme::Colors::TEXT)
+                    );
+                    
+                    // Show other available worktrees as quick switch buttons
+                    let other_worktrees: Vec<_> = self.state.available_worktrees
+                        .iter()
+                        .filter(|w| w.id != worktree.id)
+                        .collect();
+                    
+                    if !other_worktrees.is_empty() {
+                        header_content = header_content.push(
+                            text("Switch to:")
+                                .size(12)
+                                .font(fonts::BERKELEY_MONO)
+                                .color(theme::Colors::TEXT_DIM)
+                        );
+                        
+                        for other in other_worktrees.iter().take(3) {
+                            let branch_name = other.branch
+                                .as_ref()
+                                .and_then(|b| b.strip_prefix("refs/heads/"))
+                                .unwrap_or("unknown");
+                            
+                            header_content = header_content.push(
+                                button(text(branch_name).size(12).font(fonts::BERKELEY_MONO))
+                                    .on_press(Message::SelectWorktree(other.id.clone()))
+                                    .padding(6)
+                                    .style(theme::secondary_button)
+                            );
+                        }
+                        
+                        if other_worktrees.len() > 3 {
+                            header_content = header_content.push(
+                                text(format!("(+{} more)", other_worktrees.len() - 3))
+                                    .size(11)
+                                    .font(fonts::BERKELEY_MONO)
+                                    .color(theme::Colors::TEXT_DIM)
+                            );
+                        }
+                    }
+                } else {
+                    // No worktree selected, show first few as options
+                    header_content = header_content.push(
+                        text("Select worktree:")
+                            .size(13)
                             .font(fonts::BERKELEY_MONO)
-                            .color(theme::Colors::TEXT_DIM),
-                    ]
-                    .spacing(8)
-                    .align_y(iced::Alignment::Center)
-                )
-                .padding(12)
-                .width(Length::Fill)
-                .style(|_theme| {
-                    container::Style {
-                        background: Some(theme::Colors::BACKGROUND_DIM.into()),
-                        border: iced::Border {
-                            color: theme::Colors::BORDER,
-                            width: 1.0,
-                            radius: 4.0.into(),
-                        },
-                        ..Default::default()
+                            .color(theme::Colors::TEXT_DIM)
+                    );
+                    
+                    for worktree in self.state.available_worktrees.iter().take(3) {
+                        let branch_name = worktree.branch
+                            .as_ref()
+                            .and_then(|b| b.strip_prefix("refs/heads/"))
+                            .unwrap_or("unknown");
+                        
+                        header_content = header_content.push(
+                            button(text(branch_name).size(12).font(fonts::BERKELEY_MONO))
+                                .on_press(Message::SelectWorktree(worktree.id.clone()))
+                                .padding(6)
+                                .style(theme::primary_button)
+                        );
                     }
-                })
-            )
-        } else {
+                }
+            } else {
+                header_content = header_content.push(
+                    text("No worktrees available")
+                        .size(13)
+                        .font(fonts::BERKELEY_MONO)
+                        .color(theme::Colors::TEXT_DIM)
+                );
+            }
+            
+            // Add create button
+            header_content = header_content.push(Space::with_width(Length::Fill));
+            header_content = header_content.push(
+                button(text("Create Worktree").size(12).font(fonts::BERKELEY_MONO))
+                    .on_press(Message::OpenWorktreeDialog)
+                    .padding(6)
+                    .style(theme::secondary_button)
+            );
+            
             Some(
-                container(
-                    row![
-                        text("No worktree selected.").size(13).font(fonts::BERKELEY_MONO).color(theme::Colors::TEXT_DIM),
-                        Space::with_width(10),
-                        button(text("Create Worktree").size(12).font(fonts::BERKELEY_MONO))
-                            .on_press(Message::CreateWorktree)
-                            .padding(6)
-                            .style(theme::secondary_button),
-                    ]
-                    .spacing(8)
-                    .align_y(iced::Alignment::Center)
-                )
-                .padding(12)
-                .width(Length::Fill)
-                .style(|_theme| {
-                    container::Style {
-                        background: Some(theme::Colors::BACKGROUND_DIM.into()),
-                        border: iced::Border {
-                            color: theme::Colors::BORDER,
-                            width: 1.0,
-                            radius: 4.0.into(),
-                        },
-                        ..Default::default()
-                    }
-                })
+                container(header_content)
+                    .padding(12)
+                    .width(Length::Fill)
+                    .style(|_theme| {
+                        container::Style {
+                            background: Some(theme::Colors::BACKGROUND_DIM.into()),
+                            border: iced::Border {
+                                color: theme::Colors::BORDER,
+                                width: 1.0,
+                                radius: 4.0.into(),
+                            },
+                            ..Default::default()
+                        }
+                    })
             )
         };
         
@@ -907,10 +1013,203 @@ impl BickyApp {
         .width(Length::Fill)
         .height(Length::Fill);
         
-        container(layout)
+        let main_view = container(layout)
+            .width(Length::Fill)
+            .height(Length::Fill);
+            
+        // Add notification if present
+        let view_with_notification = if let Some((notification, _)) = &self.state.notification {
+            let notification_widget = self.build_notification(notification);
+            container(
+                Stack::new()
+                    .push(main_view)
+                    .push(
+                        container(notification_widget)
+                            .width(Length::Fill)
+                            .padding(20)
+                            .align_x(iced::alignment::Horizontal::Center)
+                    )
+            )
             .width(Length::Fill)
             .height(Length::Fill)
-            .into()
+        } else {
+            main_view
+        };
+            
+        // Add dialog overlay if open
+        if let Some(dialog) = &self.state.worktree_dialog {
+            self.build_worktree_dialog(dialog, view_with_notification)
+        } else {
+            view_with_notification.into()
+        }
+    }
+    
+    fn build_worktree_dialog<'a>(&self, dialog: &'a state::WorktreeDialogState, main_view: container::Container<'a, Message>) -> Element<'a, Message> {
+        use iced::widget::{text_input, Stack};
+        
+        let dialog_content = container(
+            column![
+                // Title
+                text("Create New Worktree").size(18).font(fonts::BERKELEY_MONO_BOLD),
+                Space::with_height(20),
+                
+                // Branch name input
+                column![
+                    text("Branch Name").size(14).font(fonts::BERKELEY_MONO),
+                    text_input("feature/my-new-feature", &dialog.branch_name)
+                        .on_input(Message::WorktreeBranchNameChanged)
+                        .padding(10)
+                        .font(fonts::BERKELEY_MONO)
+                        .size(14),
+                ]
+                .spacing(8),
+                
+                Space::with_height(16),
+                
+                // Base branch input
+                column![
+                    text("Base Branch").size(14).font(fonts::BERKELEY_MONO),
+                    text_input("main", &dialog.base_branch)
+                        .on_input(Message::WorktreeBaseBranchChanged)
+                        .padding(10)
+                        .font(fonts::BERKELEY_MONO)
+                        .size(14),
+                ]
+                .spacing(8),
+                
+                Space::with_height(16),
+                
+                // Custom path input (optional)
+                column![
+                    text("Custom Path (optional)").size(14).font(fonts::BERKELEY_MONO),
+                    text_input("Leave empty for default", &dialog.custom_path)
+                        .on_input(Message::WorktreeCustomPathChanged)
+                        .padding(10)
+                        .font(fonts::BERKELEY_MONO)
+                        .size(14),
+                ]
+                .spacing(8),
+                
+                Space::with_height(16),
+                
+                // Error message if any
+                if let Some(error) = &dialog.error {
+                    let error_widget: Element<Message> = container(
+                        text(error)
+                            .size(14)
+                            .font(fonts::BERKELEY_MONO)
+                            .color(theme::Colors::ERROR)
+                    )
+                    .padding(10)
+                    .style(|_theme: &Theme| {
+                        container::Style {
+                            background: Some(iced::Background::Color(Color::from_rgb(
+                                0.8, 0.2, 0.2
+                            ).scale_alpha(0.1))),
+                            border: Border {
+                                color: theme::Colors::ERROR,
+                                width: 1.0,
+                                radius: 4.0.into(),
+                            },
+                            ..Default::default()
+                        }
+                    })
+                    .into();
+                    error_widget
+                } else {
+                    Space::with_height(0).into()
+                },
+                
+                Space::with_height(20),
+                
+                // Buttons
+                row![
+                    button(text("Cancel").size(14).font(fonts::BERKELEY_MONO))
+                        .on_press(Message::CloseWorktreeDialog)
+                        .padding(10)
+                        .style(theme::secondary_button),
+                    Space::with_width(10),
+                    button(text("Create").size(14).font(fonts::BERKELEY_MONO))
+                        .on_press(Message::CreateWorktree)
+                        .padding(10)
+                        .style(theme::primary_button),
+                ]
+                .align_y(iced::Alignment::Center),
+            ]
+            .spacing(8)
+            .padding(30)
+            .width(400)
+        )
+        .style(|_theme: &Theme| {
+            container::Style {
+                background: Some(iced::Background::Color(theme::Colors::BACKGROUND)),
+                border: Border {
+                    color: theme::Colors::BORDER,
+                    width: 1.0,
+                    radius: 8.0.into(),
+                },
+                ..Default::default()
+            }
+        })
+        .center_x(Length::Fill)
+        .center_y(Length::Fill);
+        
+        // Overlay with semi-transparent background
+        container(
+            Stack::new()
+                .push(main_view)
+                .push(
+                    container(dialog_content)
+                        .width(Length::Fill)
+                        .height(Length::Fill)
+                        .style(|_: &Theme| {
+                            container::Style {
+                                background: Some(iced::Background::Color(
+                                    Color::from_rgba(0.0, 0.0, 0.0, 0.7)
+                                )),
+                                ..Default::default()
+                            }
+                        })
+                )
+        )
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
+    }
+    
+    fn build_notification(&self, notification: &state::Notification) -> Element<Message> {
+        use state::Notification;
+        
+        let (text_content, bg_color, text_color) = match notification {
+            Notification::Success(msg) => (msg.clone(), Color::from_rgb(0.2, 0.7, 0.2), Color::WHITE),
+            Notification::Error(msg) => (msg.clone(), Color::from_rgb(0.8, 0.2, 0.2), Color::WHITE),
+            Notification::Info(msg) => (msg.clone(), Color::from_rgb(0.2, 0.5, 0.8), Color::WHITE),
+        };
+        
+        container(
+            text(text_content)
+                .size(14)
+                .font(fonts::BERKELEY_MONO)
+                .color(text_color)
+        )
+        .padding([12, 20])
+        .style(move |_: &Theme| {
+            container::Style {
+                background: Some(iced::Background::Color(bg_color)),
+                border: Border {
+                    color: bg_color,
+                    width: 0.0,
+                    radius: 6.0.into(),
+                },
+                shadow: Shadow {
+                    color: Color::from_rgba(0.0, 0.0, 0.0, 0.3),
+                    offset: Vector::new(0.0, 2.0),
+                    blur_radius: 8.0,
+                },
+                ..Default::default()
+            }
+        })
+        .into()
     }
 }
 

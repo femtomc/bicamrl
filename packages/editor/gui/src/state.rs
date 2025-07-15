@@ -9,6 +9,23 @@ pub struct Conversation {
     pub messages: Vec<Message>,
 }
 
+/// Dialog state for creating worktrees
+#[derive(Debug, Clone, Default)]
+pub struct WorktreeDialogState {
+    pub branch_name: String,
+    pub base_branch: String,
+    pub custom_path: String,
+    pub error: Option<String>,
+}
+
+/// Notification types
+#[derive(Debug, Clone)]
+pub enum Notification {
+    Success(String),
+    Error(String),
+    Info(String),
+}
+
 /// Pure application state - just data, no logic
 #[derive(Debug, Clone)]
 pub struct AppState {
@@ -17,6 +34,8 @@ pub struct AppState {
     pub input: String,
     pub current_worktree: Option<Worktree>,
     pub available_worktrees: Vec<Worktree>,
+    pub worktree_dialog: Option<WorktreeDialogState>,
+    pub notification: Option<(Notification, std::time::Instant)>,
 }
 
 impl Default for AppState {
@@ -34,6 +53,8 @@ impl Default for AppState {
             input: String::new(),
             current_worktree: None,
             available_worktrees: vec![],
+            worktree_dialog: None,
+            notification: None,
         }
     }
 }
@@ -48,14 +69,28 @@ pub enum Action {
     SelectConversation(usize),
     RespondToPermission { approved: bool },
     
+    // Worktree dialog actions
+    OpenWorktreeDialog,
+    CloseWorktreeDialog,
+    UpdateWorktreeBranchName(String),
+    UpdateWorktreeBaseBranch(String),
+    UpdateWorktreeCustomPath(String),
+    CreateWorktree,
+    
     // API responses
     WorktreesLoaded(Vec<Worktree>),
+    WorktreeCreated(Worktree),
+    WorktreeCreationFailed(String),
     SelectWorktree(String),
     WorktreeChanged(Option<Worktree>),
     MessageSent { conversation_idx: usize, id: String },
     MessageProcessing { conversation_idx: usize, id: String },
     MessageCompleted { conversation_idx: usize, id: String, response: Option<String>, error: Option<String>, metadata: Option<InteractionMetadata> },
     MessageWaitingForPermission { conversation_idx: usize, id: String, permission_request: crate::types::ToolPermissionRequest },
+    
+    // Notifications
+    ShowNotification(Notification),
+    ClearNotification,
     
     // Errors
     Error(String),
@@ -172,6 +207,67 @@ pub fn update(state: &mut AppState, action: Action) {
         
         Action::WorktreeChanged(worktree) => {
             state.current_worktree = worktree;
+        }
+        
+        Action::OpenWorktreeDialog => {
+            state.worktree_dialog = Some(WorktreeDialogState {
+                base_branch: "main".to_string(),
+                ..Default::default()
+            });
+        }
+        
+        Action::CloseWorktreeDialog => {
+            state.worktree_dialog = None;
+        }
+        
+        Action::UpdateWorktreeBranchName(name) => {
+            if let Some(dialog) = &mut state.worktree_dialog {
+                dialog.branch_name = name;
+                dialog.error = None; // Clear error when user types
+            }
+        }
+        
+        Action::UpdateWorktreeBaseBranch(branch) => {
+            if let Some(dialog) = &mut state.worktree_dialog {
+                dialog.base_branch = branch;
+            }
+        }
+        
+        Action::UpdateWorktreeCustomPath(path) => {
+            if let Some(dialog) = &mut state.worktree_dialog {
+                dialog.custom_path = path;
+            }
+        }
+        
+        Action::CreateWorktree => {
+            // Just clear error, actual creation happens in update function
+            if let Some(dialog) = &mut state.worktree_dialog {
+                dialog.error = None;
+            }
+        }
+        
+        Action::WorktreeCreated(worktree) => {
+            state.available_worktrees.push(worktree.clone());
+            state.current_worktree = Some(worktree.clone());
+            state.worktree_dialog = None;
+            state.notification = Some((
+                Notification::Success(format!("Created worktree '{}'", worktree.branch.as_deref().unwrap_or("unknown"))),
+                std::time::Instant::now()
+            ));
+        }
+        
+        Action::WorktreeCreationFailed(error) => {
+            if let Some(dialog) = &mut state.worktree_dialog {
+                dialog.error = Some(error);
+            }
+        }
+        
+        Action::ShowNotification(notification) => {
+            state.notification = Some((notification, std::time::Instant::now()));
+        }
+        
+        Action::ClearNotification => {
+            state.notification = None;
         }
         
         Action::Error(_) => {

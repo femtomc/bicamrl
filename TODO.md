@@ -59,6 +59,14 @@ User feedback revealed that Sessions were an old concept that should not exist i
 
 ### Recent Accomplishments ✅
 
+#### GUI Worktree Management (2025-07-15)
+- **COMPLETED**: Full worktree creation dialog with form inputs and error handling
+- **COMPLETED**: Worktree selection UI with quick switching between branches
+- **COMPLETED**: Visual indicators for current worktree in header and sidebar
+- **COMPLETED**: Success/error notifications with auto-dismiss
+- **COMPLETED**: Tests for GUI worktree features
+- **COMPLETED**: Manual test script for GUI worktree functionality
+
 #### InteractionBus Refactoring (2025-07-15)
 - **COMPLETED**: Replaced complex InteractionBus with simpler InteractionStore
 - **COMPLETED**: Event-driven Wake process spawning (no queue management)
@@ -77,13 +85,32 @@ User feedback revealed that Sessions were an old concept that should not exist i
 - **COMPLETED**: Added tests for concurrent Wake processes in different worktrees
 - **COMPLETED**: Verified full stack works correctly (server → Wake process → interactions → worktrees)
 
-### In Progress 🚧
+### Recently Completed ✅
 
-#### Worktree Creation Dialog
-- Need to implement proper dialog UI in GUI
-- Branch name input field
-- Base branch selection
-- Custom path option
+#### Worktree Creation Dialog & GUI Improvements (2025-07-15)
+
+✅ Implemented full worktree management UI:
+- **Creation Dialog**:
+  - Branch name input field
+  - Base branch selection dropdown (defaults to "main")
+  - Optional custom path
+  - Error display when creation fails
+  - Success notification with worktree details
+  - Notification auto-dismiss after 5 seconds
+  - Clean overlay with semi-transparent background
+  - Cancel and Create buttons with proper styling
+
+- **Worktree Selection UI**:
+  - Current worktree display in header
+  - Quick switch buttons for other worktrees
+  - Shows up to 3 worktrees with "(+N more)" indicator
+  - Active worktree shown with 🌿 icon in sidebar
+  - Worktree context passed to all interactions
+
+- **Testing**:
+  - Added GUI worktree selection tests
+  - Created manual test script for GUI features
+  - Verified worktree context in interactions
 
 ### Future Enhancements 📋
 
@@ -130,13 +157,16 @@ The Git worktree support is a key step toward the vision of Wake fragments opera
 
 1. ✅ Implement Wake process per interaction - spawn new process for each interaction with proper cwd
 2. ✅ Replace InteractionBus with simpler InteractionStore
-3. ✅ Fix all test failures - 86 tests passing, 0 failing
+3. ✅ Fix all test failures - 88 tests passing, 0 failing
 4. ✅ Add full integration tests for complete stack
    - ✅ Test Wake process spawning with worktree context
    - ✅ Test multi-worktree concurrent Wake processes
    - 🚧 Test tool execution within worktree boundaries
    - Test error handling and recovery across full stack
-5. Implement worktree creation dialog in GUI
-6. Implement SQLite persistence layer
-7. Add Git status/diff integration to show worktree state
-8. Enhance Sleep agent to analyze cross-worktree patterns
+5. ✅ Implement worktree creation dialog in GUI
+6. ✅ Complete worktree selection UI in GUI
+7. Implement SQLite persistence layer
+8. Add Git status/diff integration to show worktree state
+9. Enhance Sleep agent to analyze cross-worktree patterns
+10. Add worktree deletion UI in GUI
+11. Add worktree status indicators (clean/dirty)

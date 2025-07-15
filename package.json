@@ -50,6 +50,8 @@
     "test:approve": "./scripts/test/approve-permission.sh",
     "test:deny": "./scripts/test/deny-permission.sh",
     "test:permission-flow": "./scripts/test/test-tool-permission-flow.sh",
+    "test:worktree-dialog": "./scripts/test-worktree-dialog.sh",
+    "test:gui-worktree": "./scripts/test-gui-worktree-features.sh",
     "bicky": "bun run dev",
     "server": "bun run dev:server",
     "gui": "bun run dev:gui",
