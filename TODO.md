@@ -87,6 +87,14 @@ User feedback revealed that Sessions were an old concept that should not exist i
 
 ### Recently Completed ✅
 
+#### Editor Package Organization & Cleanup (2025-07-15)
+
+✅ Removed obsolete iced editor implementation:
+- **REMOVED**: packages/editor/iced (outdated code)
+- **CLEANED**: Submodule references from .gitmodules
+- **ACTIVE**: GUI development continues in packages/editor/gui
+- **MAINTAINED**: Core state management in packages/editor/core
+
 #### Worktree Creation Dialog & GUI Improvements (2025-07-15)
 
 ✅ Implemented full worktree management UI:
@@ -155,18 +163,32 @@ The Git worktree support is a key step toward the vision of Wake fragments opera
 
 ## Next Steps
 
+### Completed Recently ✅
 1. ✅ Implement Wake process per interaction - spawn new process for each interaction with proper cwd
 2. ✅ Replace InteractionBus with simpler InteractionStore
 3. ✅ Fix all test failures - 88 tests passing, 0 failing
 4. ✅ Add full integration tests for complete stack
    - ✅ Test Wake process spawning with worktree context
    - ✅ Test multi-worktree concurrent Wake processes
-   - 🚧 Test tool execution within worktree boundaries
-   - Test error handling and recovery across full stack
 5. ✅ Implement worktree creation dialog in GUI
 6. ✅ Complete worktree selection UI in GUI
-7. Implement SQLite persistence layer
-8. Add Git status/diff integration to show worktree state
-9. Enhance Sleep agent to analyze cross-worktree patterns
-10. Add worktree deletion UI in GUI
-11. Add worktree status indicators (clean/dirty)
+7. ✅ Clean up obsolete iced editor code
+
+### Priority Tasks 🚀
+1. **Implement SQLite persistence layer** - Replace in-memory stores for durability
+   - Interaction history persistence
+   - Worktree state persistence
+   - Agent memory storage
+2. **Add Git status/diff integration** - Show worktree state in GUI
+3. **Enhance Sleep Agent** - Analyze patterns across worktrees
+4. **Enhance Sleep agent** - Analyze cross-worktree patterns and suggest workflows
+5. **Add worktree deletion UI** - Allow removing worktrees from GUI
+6. **Add worktree status indicators** - Show clean/dirty state
+7. **Test error handling and recovery** - Full stack error resilience
+
+### Future Enhancements 🔮
+1. **WebSocket support** - Replace SSE with bidirectional communication
+2. **Agent marketplace** - Share custom agents
+3. **Vector embeddings** - Semantic search in memory system
+4. **Multi-model support** - Use different models for different agents
+5. **TUI implementation** - Terminal interface alongside GUI

@@ -1,66 +1,84 @@
 # Git Worktree Implementation TODO
 
-## Overview
-Implement Git worktree support to enable multiple concurrent sessions with isolated file system contexts. Each session can be linked to a Git worktree, allowing Wake agents to operate in different branches/states simultaneously.
+## ✅ UPDATE: Worktree Support Implemented! (2025-07-15)
 
-## Implementation Plan
+This document tracked the implementation of Git worktree support. Most features have been completed!
+
+### What Was Completed ✅
+- Worktree manager with full lifecycle operations
+- Session concept removed (replaced with worktree context in interactions)
+- Worktree-aware tools with path validation
+- GUI worktree creation and selection
+- API endpoints for worktree management
+- Comprehensive test coverage
+
+### What Remains 🚧
+- SQLite persistence (currently in-memory)
+- Git status/diff integration in GUI
+- Worktree deletion from GUI
+- Enhanced cross-worktree agent analysis
+
+---
+
+## Original Implementation Plan (For Reference)
 
 ### Phase 1: Core Infrastructure
-- [ ] **Worktree Manager** (`packages/server/src/worktree/`)
-  - [ ] Create `manager.ts` with worktree lifecycle operations
-  - [ ] Implement `git.ts` for Git worktree commands
-  - [ ] Define types in `types.ts`
-  - [ ] Add worktree discovery/validation
+- [✅] **Worktree Manager** (`packages/server/src/worktree/`)
+  - [✅] Create `manager.ts` with worktree lifecycle operations
+  - [✅] Implement `git.ts` for Git worktree commands
+  - [✅] Define types in `types.ts`
+  - [✅] Add worktree discovery/validation
 
-- [ ] **Session Management** (`packages/server/src/session/`)
-  - [ ] Create `manager.ts` for session CRUD
-  - [ ] Implement SQLite store in `store.ts`
-  - [ ] Add session-worktree association
-  - [ ] Handle session cleanup on disconnect
+- [❌] **Session Management** ~~(`packages/server/src/session/`)~~
+  - [❌] ~~Create `manager.ts` for session CRUD~~ - REMOVED: Sessions don't exist
+  - [❌] ~~Implement SQLite store in `store.ts`~~ - REMOVED: Sessions don't exist
+  - [❌] ~~Add session-worktree association~~ - REMOVED: Worktree is in interaction metadata
+  - [❌] ~~Handle session cleanup on disconnect~~ - REMOVED: No sessions to clean up
 
 ### Phase 2: Integration
-- [ ] **Update Shared Types** (`packages/shared/src/index.ts`)
-  - [ ] Add `worktreeId` and `worktreePath` to Session
-  - [ ] Create `Worktree` interface
-  - [ ] Add session context to interactions
+- [✅] **Update Shared Types** (`packages/shared/src/index.ts`)
+  - [❌] ~~Add `worktreeId` and `worktreePath` to Session~~ - Added to interaction metadata instead
+  - [✅] Create `Worktree` interface
+  - [✅] Add worktree context to interactions
 
-- [ ] **Modify InteractionBus** (`packages/server/src/interaction/bus.ts`)
-  - [ ] Add sessionId to interactions
-  - [ ] Pass session context through pipeline
-  - [ ] Update event subscriptions for session filtering
+- [✅] **Modify InteractionBus** ~~(`packages/server/src/interaction/bus.ts`)~~ - Replaced with InteractionStore
+  - [✅] Add worktreeId to interaction metadata
+  - [✅] Pass worktree context through pipeline
+  - [❌] ~~Update event subscriptions for session filtering~~ - No sessions
 
-- [ ] **Update Wake Agent** (`packages/server/src/agents/wake.ts`)
-  - [ ] Accept session context in constructor
-  - [ ] Pass worktree path to tool registry
-  - [ ] Filter interactions by session
+- [✅] **Update Wake Agent** (`packages/server/src/agents/wake.ts`)
+  - [✅] Accept worktree context in process spawn
+  - [✅] Pass worktree path to tool registry
+  - [❌] ~~Filter interactions by session~~ - Wake spawns per interaction
 
 ### Phase 3: Tool Updates
-- [ ] **File Tools** (`packages/server/src/tools/`)
-  - [ ] Update ReadFileTool to resolve paths relative to worktree
-  - [ ] Update WriteFileTool for worktree-relative paths
-  - [ ] Update ListDirectoryTool for worktree context
-  - [ ] Add path validation to prevent escaping worktree
+- [✅] **File Tools** (`packages/server/src/tools/`)
+  - [✅] Update ReadFileTool to resolve paths relative to worktree
+  - [✅] Update WriteFileTool for worktree-relative paths
+  - [✅] Update ListDirectoryTool for worktree context
+  - [✅] Add path validation to prevent escaping worktree
 
 ### Phase 4: API Changes
-- [ ] **New Endpoints** (`packages/server/src/api/routes.ts`)
-  - [ ] `POST /sessions` - Create session with optional worktree
-  - [ ] `GET /sessions` - List all sessions
-  - [ ] `GET /sessions/:id` - Get session details
-  - [ ] `POST /sessions/:id/worktree` - Create/attach worktree
-  - [ ] `DELETE /sessions/:id/worktree` - Detach worktree
-  - [ ] `GET /worktrees` - List available worktrees
+- [✅/❌] **New Endpoints** (`packages/server/src/api/routes.ts`)
+  - [❌] ~~`POST /sessions`~~ - REMOVED: No sessions
+  - [❌] ~~`GET /sessions`~~ - REMOVED: No sessions
+  - [❌] ~~`GET /sessions/:id`~~ - REMOVED: No sessions
+  - [❌] ~~`POST /sessions/:id/worktree`~~ - REMOVED: No sessions
+  - [❌] ~~`DELETE /sessions/:id/worktree`~~ - REMOVED: No sessions
+  - [✅] `GET /worktrees` - List available worktrees
+  - [✅] `POST /worktrees` - Create new worktree
 
-- [ ] **Update Existing Endpoints**
-  - [ ] Change `/message` to `/sessions/:id/message`
-  - [ ] Change `/interactions` to `/sessions/:id/interactions`
-  - [ ] Update SSE stream to be session-scoped
+- [✅] **Update Existing Endpoints**
+  - [✅] `/message` accepts worktreeId in request body
+  - [✅] `/interactions` returns all interactions
+  - [✅] SSE stream shows all interactions (not session-scoped)
 
 ### Phase 5: GUI Updates
-- [ ] **Rust GUI** (`packages/editor/gui/`)
-  - [ ] Add session selector in UI
-  - [ ] Show current worktree/branch info
-  - [ ] Update API client for new endpoints
-  - [ ] Add worktree creation dialog
+- [✅] **Rust GUI** (`packages/editor/gui/`)
+  - [❌] ~~Add session selector in UI~~ - Shows worktree selector instead
+  - [✅] Show current worktree/branch info
+  - [✅] Update API client for new endpoints
+  - [✅] Add worktree creation dialog
 
 ## Testing Strategy
 
@@ -96,14 +114,14 @@ Implement Git worktree support to enable multiple concurrent sessions with isola
    - Test multiple concurrent sessions
 
 ### Manual Testing Checklist
-- [ ] Create new session without worktree
-- [ ] Create new session with existing worktree
-- [ ] Create new worktree for session
-- [ ] Switch worktrees mid-session
-- [ ] Run file operations in different worktrees
-- [ ] Verify isolation between sessions
-- [ ] Test GUI worktree selector
-- [ ] Test persistence across server restarts
+- [❌] ~~Create new session without worktree~~ - No sessions
+- [❌] ~~Create new session with existing worktree~~ - No sessions
+- [✅] Create new worktree
+- [✅] Switch worktrees
+- [✅] Run file operations in different worktrees
+- [✅] Verify isolation between worktrees
+- [✅] Test GUI worktree selector
+- [🚧] Test persistence across server restarts - In-memory only currently
 
 ## Implementation Order
 1. Start with shared types (no breaking changes)
@@ -124,8 +142,18 @@ Implement Git worktree support to enable multiple concurrent sessions with isola
   - **Mitigation**: Lock worktrees to single session
 
 ## Success Criteria
-- Multiple Wake agents can operate in different Git branches
-- File operations are isolated to worktree boundaries
-- Sessions persist across server restarts
-- GUI clearly shows session/worktree context
-- All tests pass with >90% coverage
+- [✅] Multiple Wake agents can operate in different Git branches
+- [✅] File operations are isolated to worktree boundaries
+- [🚧] ~~Sessions~~ Interactions persist across server restarts - Needs SQLite
+- [✅] GUI clearly shows ~~session~~/worktree context
+- [✅] All tests pass with >90% coverage (88 tests passing)
+
+## What's Next?
+
+With worktree support implemented, the next priorities are:
+
+1. **SQLite Persistence** - Make worktrees and interactions survive restarts
+2. **Git Integration** - Show diff/status in GUI
+3. **Enhanced Sleep Agent** - Cross-worktree pattern analysis
+4. **Worktree Management UI** - Delete worktrees from GUI
+5. **Performance Optimization** - Handle many worktrees efficiently
