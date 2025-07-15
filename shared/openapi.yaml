@@ -1,0 +1,266 @@
+openapi: 3.1.0
+info:
+  title: Bicamrl API
+  version: 0.1.0
+  description: API for Bicamrl agent-based AI assistant
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      operationId: getHealth
+      responses:
+        '200':
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+                  version:
+                    type: string
+
+  /sessions:
+    post:
+      summary: Create a new chat session
+      operationId: createSession
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: Optional session name
+                metadata:
+                  type: object
+                  additionalProperties: true
+      responses:
+        '201':
+          description: Session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+
+    get:
+      summary: List all sessions
+      operationId: listSessions
+      responses:
+        '200':
+          description: List of sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Session'
+
+  /sessions/{sessionId}:
+    get:
+      summary: Get session details
+      operationId: getSession
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Session details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+
+  /sessions/{sessionId}/messages:
+    post:
+      summary: Send a message to the session
+      operationId: sendMessage
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - content
+              properties:
+                content:
+                  type: string
+                  description: Message content
+                metadata:
+                  type: object
+                  additionalProperties: true
+      responses:
+        '201':
+          description: Message sent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+
+    get:
+      summary: Get session messages
+      operationId: getMessages
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Message'
+
+  /sessions/{sessionId}/stream:
+    get:
+      summary: Stream session events via SSE
+      operationId: streamSessionEvents
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: SSE stream of events
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  /sessions/{sessionId}/interactions:
+    get:
+      summary: Get interaction queue status
+      operationId: getInteractionQueue
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Interaction queue status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InteractionQueueStatus'
+
+components:
+  schemas:
+    Session:
+      type: object
+      required:
+        - id
+        - createdAt
+        - status
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [active, archived]
+        metadata:
+          type: object
+          additionalProperties: true
+
+    Message:
+      type: object
+      required:
+        - id
+        - sessionId
+        - role
+        - content
+        - timestamp
+      properties:
+        id:
+          type: string
+          format: uuid
+        sessionId:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [user, assistant, system]
+        content:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          additionalProperties: true
+        interactionId:
+          type: string
+          format: uuid
+          description: ID of the related interaction in the bus
+
+    Event:
+      type: object
+      required:
+        - type
+        - timestamp
+      properties:
+        type:
+          type: string
+          enum: [message, interaction_update, agent_status, error]
+        timestamp:
+          type: string
+          format: date-time
+        data:
+          type: object
+          additionalProperties: true
+
+    InteractionQueueStatus:
+      type: object
+      properties:
+        queueSize:
+          type: integer
+        needsWork:
+          type: integer
+        needsReview:
+          type: integer
+        processing:
+          type: integer
+        completed:
+          type: integer
+        analyzing:
+          type: integer

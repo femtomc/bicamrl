@@ -1,0 +1,44 @@
+# Bicamrl Mind Configuration
+# This file configures the LLM providers and other settings
+
+# Use Claude Code as the default provider
+default_provider = "claude_code"
+
+# Agent Configuration
+[agents]
+# Enable tools for the Wake agent
+enable_tools = true
+
+# Claude Code provider (no API key needed - uses ambient Claude Code context)
+[llm_providers.claude_code]
+type = "claude_code"
+enabled = true
+model = "claude-opus-4-20250514"
+temperature = 0.7
+
+# Claude provider (requires ANTHROPIC_API_KEY env var)
+[llm_providers.claude]
+type = "claude"
+api_key = "${ANTHROPIC_API_KEY}"
+model = "claude-3-opus-20240229"
+temperature = 0.7
+
+# Alternative: OpenAI provider (requires OPENAI_API_KEY env var)
+[llm_providers.openai]
+type = "openai"
+api_key = "${OPENAI_API_KEY}"
+model = "gpt-4o-mini"
+temperature = 0.7
+
+# Alternative: Local LM Studio provider
+[llm_providers.lmstudio]
+type = "lmstudio"
+api_base = "http://localhost:1234/v1"
+model = "your-local-model"
+temperature = 0.7
+
+# Mock provider for testing
+[llm_providers.mock]
+type = "mock"
+enabled = true
+

@@ -1,0 +1,42 @@
+{
+  "name": "@bicamrl/server",
+  "version": "0.1.0",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bun run --hot src/index.ts",
+    "start": "bun run src/index.ts",
+    "build": "bun build ./src/index.ts --outdir=./dist --target bun",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "test": "bun test",
+    "test:unit": "bun test tests/unit",
+    "test:integration": "bun test tests/integration",
+    "test:watch": "bun test --watch",
+    "test:coverage": "bun test --coverage",
+    "test:ci": "bun test --bail"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.0.0",
+    "eslint": "^8.57.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "prettier": "^3.2.5"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-code": "^1.0.43",
+    "@anthropic-ai/sdk": "^0.56.0",
+    "@bicamrl/shared": "workspace:*",
+    "@hono/zod-validator": "^0.7.0",
+    "@iarna/toml": "^2.2.5",
+    "@types/uuid": "^10.0.0",
+    "hono": "^4.8.4",
+    "openai": "^5.8.2",
+    "toml": "^3.0.0",
+    "uuid": "^11.1.0",
+    "zod": "^4.0.5"
+  }
+}
