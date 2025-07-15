@@ -41,6 +41,7 @@ process.on('unhandledRejection', (reason, promise) => {
 
 // Track processed message count to avoid reprocessing
 let processedMessageCount = 0;
+let hasCompleted = false;
 
 async function fetchInteraction(): Promise<any> {
   console.log(`[WakeProcess] Fetching interaction from ${serverUrl}/interactions/${interactionId}`);
@@ -135,9 +136,9 @@ async function processMessages() {
             console.log('[WakeProcess] Received event for our interaction');
             
             // Check if interaction is completed
-            if (event.type === 'interaction_completed') {
+            if (event.type === 'interaction_completed' || hasCompleted) {
               console.log('[WakeProcess] Interaction completed, exiting');
-              return;
+              process.exit(0);
             }
             
             // Process new messages
@@ -153,8 +154,20 @@ async function processMessages() {
 
 async function processInteractionIfNeeded(llmService: LLMService, toolRegistry: ToolRegistry) {
   try {
+    // Don't process if we've already completed
+    if (hasCompleted) {
+      console.log('[WakeProcess] Already completed, skipping processing');
+      return;
+    }
+    
     // Fetch current interaction state
     const interactionData = await fetchInteraction();
+    
+    // Set worktree context on tool registry if available
+    if (interactionData.metadata?.worktreeContext) {
+      console.log('[WakeProcess] Setting worktree context:', interactionData.metadata.worktreeContext);
+      toolRegistry.setWorktreeContext(interactionData.metadata.worktreeContext);
+    }
     
     // Check if there are new messages to process
     const currentMessageCount = interactionData.content.length;
@@ -190,6 +203,14 @@ async function processInteractionIfNeeded(llmService: LLMService, toolRegistry: 
         const toolCall = interactionData.metadata.pendingToolCall;
         console.log('[WakeProcess] Executing approved tool:', toolCall);
         
+        // Update status to show tool execution
+        await submitResult({
+          metadata: { 
+            currentAction: `⚙️ Executing ${toolCall.name} tool...`
+          },
+          isStatusUpdate: true
+        });
+        
         const toolResult = await executeTool(toolRegistry, toolCall.name, toolCall.arguments);
         console.log('[WakeProcess] Tool result:', toolResult);
         
@@ -198,6 +219,14 @@ async function processInteractionIfNeeded(llmService: LLMService, toolRegistry: 
           role: 'tool' as any,
           content: JSON.stringify(toolResult),
           tool_use_id: toolCall.id
+        });
+        
+        // Update status to show we're generating response
+        await submitResult({
+          metadata: { 
+            currentAction: '🤔 Processing tool results...'
+          },
+          isStatusUpdate: true
         });
         
         // Get final response
@@ -210,20 +239,94 @@ async function processInteractionIfNeeded(llmService: LLMService, toolRegistry: 
           usage: response.usage,
           metadata: { status: 'completed' }
         });
+        hasCompleted = true;
       } else {
         // User denied
         await submitResult({
           response: "I understand. I won't use that tool. Is there anything else I can help you with?",
           metadata: { status: 'completed' }
         });
+        hasCompleted = true;
       }
     } else {
       // Normal query processing
       console.log('[WakeProcess] Processing normal query');
       
+      // Send initial processing status
+      await submitResult({
+        metadata: { 
+          status: 'processing',
+          currentAction: 'Initializing LLM...'
+        },
+        isStatusUpdate: true
+      });
+      
+      const startTime = Date.now();
       const tools = toolRegistry.getTools();
-      const response = await llmService.completeWithTools(messages, tools);
-      console.log('[WakeProcess] Got LLM response');
+      
+      // Use Unicode mathematical operators
+      const symbols = [
+        '⊕', '⊖', '⊗', '⊘', '⊙', '⊚', '⊛', '⊜', '⊝', '⊞', '⊟',
+        '⊠', '⊡'
+      ];
+      let symbolIndex = 0;
+      
+      // Track real tokens from LLM
+      let realOutputTokens = 0;
+      let lastTokenUpdate = Date.now();
+      
+      // Progress update interval
+      const progressInterval = setInterval(async () => {
+        const elapsed = Date.now() - startTime;
+        const seconds = (elapsed / 1000).toFixed(1);
+        
+        // Rotate through symbols
+        symbolIndex = (symbolIndex + 1) % symbols.length;
+        const symbol = symbols[symbolIndex];
+        
+        // Determine action text based on elapsed time and token generation
+        let actionText = 'Processing';
+        if (elapsed < 500) {
+          actionText = 'Initializing';
+        } else if (realOutputTokens === 0 && elapsed < 2000) {
+          actionText = 'Analyzing request';
+        } else if (realOutputTokens > 0) {
+          const timeSinceLastToken = Date.now() - lastTokenUpdate;
+          if (timeSinceLastToken < 100) {
+            actionText = 'Generating response';
+          } else if (timeSinceLastToken < 500) {
+            actionText = 'Thinking';
+          } else {
+            actionText = 'Processing';
+          }
+        } else {
+          actionText = 'Waiting for LLM';
+        }
+        
+        // Update progress with real token count
+        await submitResult({
+          metadata: {
+            currentAction: `${symbol} ${actionText} • ${seconds}s • ${realOutputTokens} tokens`,
+            tokens: {
+              output: realOutputTokens
+            }
+          },
+          isStatusUpdate: true
+        });
+      }, 100); // Update 10 times per second
+      
+      let response;
+      try {
+        response = await llmService.completeWithTools(messages, tools, {
+          onTokenUpdate: async (tokens: number) => {
+            realOutputTokens = tokens;
+            lastTokenUpdate = Date.now();
+          }
+        });
+        console.log('[WakeProcess] Got LLM response');
+      } finally {
+        clearInterval(progressInterval);
+      }
       
       // Handle tool calls
       if (response.toolCalls && response.toolCalls.length > 0) {
@@ -257,6 +360,7 @@ async function processInteractionIfNeeded(llmService: LLMService, toolRegistry: 
           usage: response.usage,
           metadata: { status: 'completed' }
         });
+        hasCompleted = true;
       }
     }
     

@@ -218,6 +218,13 @@ app.post('/interactions/:id/result', async (c) => {
     return c.json({ error: 'Interaction not found' }, 404);
   }
   
+  // Check if this is just a status update
+  if (result.isStatusUpdate) {
+    // Only update metadata without changing completion state
+    await interactionStore.updateMetadata(id, result.metadata || {});
+    return c.json({ success: true });
+  }
+  
   // Add assistant message if there's a response
   if (result.response) {
     await interactionStore.addMessage(id, {
@@ -242,6 +249,11 @@ app.post('/interactions/:id/result', async (c) => {
     processingTimeMs: Date.now() - interaction.timestamp.getTime()
   };
   
+  // Clear currentAction when completing
+  if (result.metadata?.status === 'completed' || result.response) {
+    delete metadata.currentAction;
+  }
+  
   await interactionStore.updateMetadata(id, metadata);
   
   // Update state based on status
@@ -255,7 +267,7 @@ app.post('/interactions/:id/result', async (c) => {
         processor: 'wake'
       })
     );
-  } else if (result.metadata?.status !== 'waiting_for_permission') {
+  } else if (result.metadata?.status !== 'waiting_for_permission' && !result.isStatusUpdate) {
     await interactionStore.complete(id, result);
   }
   

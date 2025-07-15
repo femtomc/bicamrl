@@ -91,6 +91,18 @@ export class WakeAgent extends Agent {
         // Execute the tool
         const toolCall = interaction.metadata.pendingToolCall;
         console.log('[Wake] User approved, executing tool:', toolCall);
+        
+        // Update status to show tool execution
+        interaction.metadata.currentAction = `⚙️ Executing ${toolCall.name} tool...`;
+        await this.interactionBus.emitEvent({
+          type: 'interaction_updated',
+          timestamp: new Date(),
+          data: {
+            interactionId: interaction.id,
+            metadata: interaction.metadata
+          }
+        });
+        
         const toolResult = await this.executeTool(toolCall.name, toolCall.arguments);
         console.log('[Wake] Tool result:', toolResult);
         
@@ -98,7 +110,21 @@ export class WakeAgent extends Agent {
         const messages = this.buildMessages(interaction, toolResult);
         const tools = this.enableTools ? this.toolRegistry.getTools() : [];
         
+        // Update status to show we're generating response
+        interaction.metadata.currentAction = '🤔 Processing tool results...';
+        await this.interactionBus.emitEvent({
+          type: 'interaction_updated',
+          timestamp: new Date(),
+          data: {
+            interactionId: interaction.id,
+            metadata: interaction.metadata
+          }
+        });
+        
         const response = await this.llmService.completeWithTools(messages, tools);
+        
+        // Clear progress indicator
+        delete interaction.metadata.currentAction;
         
         // Note: interaction is immutable, metadata updates happen in the return value
         
@@ -132,7 +158,7 @@ export class WakeAgent extends Agent {
     
     // Update metadata to show we're processing
     interaction.metadata.status = 'processing';
-    // Progress tracking
+    interaction.metadata.currentAction = 'Initializing LLM...';
     
     await this.interactionBus.emitEvent({
       type: 'interaction_updated',
@@ -155,27 +181,40 @@ export class WakeAgent extends Agent {
     ];
     let symbolIndex = 0;
     
-    // Simulate progress updates since claude-code doesn't stream
-    let simulatedTokens = 0;
+    // Track real tokens from LLM
+    let realOutputTokens = 0;
+    let lastTokenUpdate = Date.now();
+    
+    // Progress update interval
     const progressInterval = setInterval(async () => {
       const elapsed = Date.now() - startTime;
       const seconds = (elapsed / 1000).toFixed(1);
-      
-      // Simulate token generation after 1 second
-      if (elapsed > 1000 && elapsed < 3000) {
-        // Simulate roughly 20-40 tokens per second
-        simulatedTokens = Math.floor((elapsed - 1000) / 50);
-      }
-      
-      // Use real tokens if available, otherwise simulated
-      const displayTokens = interaction.metadata.tokens?.output || simulatedTokens;
       
       // Rotate through symbols
       symbolIndex = (symbolIndex + 1) % symbols.length;
       const symbol = symbols[symbolIndex];
       
-      // Update progress
-      interaction.metadata.currentAction = `${symbol} ${seconds}s • ${displayTokens} tokens`;
+      // Determine action text based on elapsed time and token generation
+      let actionText = 'Processing';
+      if (elapsed < 500) {
+        actionText = 'Initializing';
+      } else if (realOutputTokens === 0 && elapsed < 2000) {
+        actionText = 'Analyzing request';
+      } else if (realOutputTokens > 0) {
+        const timeSinceLastToken = Date.now() - lastTokenUpdate;
+        if (timeSinceLastToken < 100) {
+          actionText = 'Generating response';
+        } else if (timeSinceLastToken < 500) {
+          actionText = 'Thinking';
+        } else {
+          actionText = 'Processing';
+        }
+      } else {
+        actionText = 'Waiting for LLM';
+      }
+      
+      // Update progress with real token count
+      interaction.metadata.currentAction = `${symbol} ${actionText} • ${seconds}s • ${realOutputTokens} tokens`;
       
       await this.interactionBus.emitEvent({
         type: 'interaction_updated',
@@ -190,10 +229,27 @@ export class WakeAgent extends Agent {
     let response;
     try {
       console.log('[Wake] Calling LLM with tools:', tools.map(t => t.name));
-      response = await this.llmService.completeWithTools(messages, tools);
+      
+      // Call LLM with token update callback
+      response = await this.llmService.completeWithTools(messages, tools, {
+        onTokenUpdate: async (tokens: number) => {
+          realOutputTokens = tokens;
+          lastTokenUpdate = Date.now();
+          
+          // Update token count in metadata
+          interaction.metadata.tokens = {
+            ...interaction.metadata.tokens,
+            output: tokens
+          };
+        }
+      });
+      
       console.log('[Wake] Got response:', response);
     } finally {
       clearInterval(progressInterval);
+      
+      // Clear the currentAction from metadata
+      delete interaction.metadata.currentAction;
     }
     
     // Handle tool calls if any
@@ -233,7 +289,8 @@ export class WakeAgent extends Agent {
       interaction.metadata.processingTimeMs = processingTimeMs;
       interaction.metadata.status = 'waiting_for_permission';
       interaction.metadata.pendingToolCall = toolCall;  // Store the tool call for later
-      // Clear progress
+      // Clear progress indicator
+      delete interaction.metadata.currentAction;
       
       // Return a message asking for permission
       return {
@@ -259,7 +316,8 @@ export class WakeAgent extends Agent {
     interaction.metadata.model = response.model;
     interaction.metadata.processingTimeMs = processingTimeMs;
     interaction.metadata.status = 'completed';
-    // currentAction will be removed when metadata is updated
+    // Clear progress indicator
+    delete interaction.metadata.currentAction;
     
     return {
       response: response.content,

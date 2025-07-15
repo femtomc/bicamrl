@@ -79,8 +79,11 @@ export class MockLLMProvider implements LLMProvider {
       
       console.log('[Mock] Processing read request:', lastMessage.content);
       
-      // Look for specific file patterns
-      if (lastMessage.content.includes('test-file.txt') || lastMessage.content.includes('test-file')) {
+      // Look for specific file patterns - check with various word boundaries
+      const hasTestFile = lastMessage.content.match(/test-file\.txt/i) || lastMessage.content.includes('test-file');
+      console.log('[Mock] Has test-file pattern:', hasTestFile);
+      
+      if (hasTestFile) {
         filePath = 'test-file.txt';
       } else if (lastMessage.content.includes('data.txt')) {
         filePath = 'data.txt';
@@ -94,7 +97,8 @@ export class MockLLMProvider implements LLMProvider {
           /read (?:the )?([^\s]+\.txt) file/i,
           /read (?:the )?file ([^\s]+\.txt)/i,
           /read ([^\s]+\.txt)/i,
-          /([^\s]+\.txt)/i
+          /(?:file|read) (?:at |called |named )?([^\s]+\.txt)/i,
+          /([^\s/]+\.txt)/i  // Last resort: any .txt filename without spaces or slashes
         ];
         
         for (const pattern of patterns) {

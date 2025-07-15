@@ -238,7 +238,7 @@ export class MockLLMProvider implements LLMProvider {
       return { content: this.response };
     }
     if (this.responseFunction) {
-      const result = this.responseFunction(messages);
+      const result = await this.responseFunction(messages);
       if (typeof result === 'object' && 'content' in result) {
         return result;
       }
@@ -251,8 +251,33 @@ export class MockLLMProvider implements LLMProvider {
     // Check if the message is asking to read a file
     if (lastMessage.toLowerCase().includes('read') && lastMessage.toLowerCase().includes('file')) {
       // Extract filename from the message (simple pattern matching)
-      const fileMatch = lastMessage.match(/(?:file|read)\s+([^\s]+)/i);
-      const fileName = fileMatch ? fileMatch[1] : 'unknown.txt';
+      let fileName = 'unknown.txt';
+      
+      // Try specific patterns first
+      if (lastMessage.includes('test-file.txt')) {
+        fileName = 'test-file.txt';
+      } else if (lastMessage.includes('data.txt')) {
+        fileName = 'data.txt';
+      } else if (lastMessage.includes('outside.txt')) {
+        // Extract the full path if it contains outside.txt
+        const pathMatch = lastMessage.match(/(?:at |read )?([\/\w\-\.]+outside\.txt)/i);
+        fileName = pathMatch ? pathMatch[1] : 'outside.txt';
+      } else {
+        // Try to extract filename with various patterns
+        const patterns = [
+          /read (?:the )?([^\s]+\.txt) file/i,
+          /read (?:the )?file ([^\s]+\.txt)/i,
+          /([^\s]+\.txt)/i
+        ];
+        
+        for (const pattern of patterns) {
+          const match = lastMessage.match(pattern);
+          if (match) {
+            fileName = match[1];
+            break;
+          }
+        }
+      }
       
       return {
         content: `I'll read the file ${fileName} for you.`,

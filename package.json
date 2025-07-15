@@ -52,6 +52,8 @@
     "test:permission-flow": "./scripts/test/test-tool-permission-flow.sh",
     "test:worktree-dialog": "./scripts/test-worktree-dialog.sh",
     "test:gui-worktree": "./scripts/test-gui-worktree-features.sh",
+    "test:gui-animation": "./scripts/test-gui-processing-animation.sh",
+    "test:gui-worktree-interaction": "./scripts/test-gui-worktree-interaction.sh",
     "bicky": "bun run dev",
     "server": "bun run dev:server",
     "gui": "bun run dev:gui",
