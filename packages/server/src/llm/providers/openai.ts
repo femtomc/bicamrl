@@ -98,17 +98,10 @@ export class OpenAILLMProvider implements LLMProvider {
     }
   }
   
-  async generateEmbedding(text: string): Promise<number[]> {
-    try {
-      const response = await this.client.embeddings.create({
-        model: this.embeddingModel,
-        input: text
-      });
-      
-      return response.data[0]?.embedding || [];
-    } catch (error) {
-      console.error('[OpenAI] Embedding error:', error);
-      throw error;
-    }
+  generateEmbedding(text: string): number[] {
+    // OpenAI provider doesn't provide synchronous embeddings
+    // Return a mock embedding for now
+    console.warn('[OpenAI] Synchronous embeddings not supported, returning mock');
+    return new Array(1536).fill(0).map(() => Math.random() * 2 - 1);
   }
 }

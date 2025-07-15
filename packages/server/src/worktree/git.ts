@@ -113,7 +113,21 @@ export class GitWorktreeOperations implements GitOperations {
     const worktrees = await this.listWorktrees();
     const normalizedPath = normalize(path);
     
-    return worktrees.find(w => normalize(w.path) === normalizedPath) || null;
+    console.log(`[Git] Looking for worktree at: ${normalizedPath}`);
+    console.log(`[Git] Available worktrees:`, worktrees.map(w => w.path));
+    
+    // Try to find by exact match or by ending with the path
+    const found = worktrees.find(w => {
+      const normalizedWorktreePath = normalize(w.path);
+      return normalizedWorktreePath === normalizedPath || 
+             normalizedWorktreePath.endsWith(normalizedPath);
+    });
+    
+    if (!found) {
+      console.log(`[Git] Worktree not found for path: ${path}`);
+    }
+    
+    return found || null;
   }
 
   async validateWorktreePath(path: string): Promise<boolean> {

@@ -54,18 +54,18 @@ describe('ListDirectoryTool', () => {
       expect(result).toHaveLength(4);
       
       // Check that all entries are present
-      const names = result.map(e => e.name);
+      const names = result.map((e: any) => e.name);
       expect(names).toContain('file1.txt');
       expect(names).toContain('file2.js');
       expect(names).toContain('subdir');
       expect(names).toContain('.hidden');
       
       // Check types
-      const file1 = result.find(e => e.name === 'file1.txt');
+      const file1 = result.find((e: any) => e.name === 'file1.txt');
       expect(file1?.type).toBe('file');
       expect(file1?.path).toContain('file1.txt');
       
-      const subdir = result.find(e => e.name === 'subdir');
+      const subdir = result.find((e: any) => e.name === 'subdir');
       expect(subdir?.type).toBe('directory');
       expect(subdir?.path).toContain('subdir');
       
@@ -90,7 +90,7 @@ describe('ListDirectoryTool', () => {
     });
     
     test('should handle missing path parameter', async () => {
-      await expect(tool.execute({}))
+      await expect(tool.execute({} as any))
         .rejects.toThrow('Missing required property: path');
     });
     
@@ -104,7 +104,7 @@ describe('ListDirectoryTool', () => {
       
       expect(result).toHaveLength(2);
       
-      const names = result.map(e => e.name);
+      const names = result.map((e: any) => e.name);
       expect(names).toContain('dir2');
       expect(names).toContain('file.txt');
       
@@ -123,7 +123,7 @@ describe('ListDirectoryTool', () => {
       expect(result).toHaveLength(numFiles);
       
       // Check first and last files
-      const names = result.map(e => e.name);
+      const names = result.map((e: any) => e.name);
       expect(names).toContain('file0.txt');
       expect(names).toContain('file99.txt');
       
@@ -143,14 +143,14 @@ describe('ListDirectoryTool', () => {
       expect(result.length).toBeGreaterThanOrEqual(4);
       
       // Check file types
-      const textFile = result.find(e => e.name === 'text.txt');
+      const textFile = result.find((e: any) => e.name === 'text.txt');
       expect(textFile?.type).toBe('file');
       
-      const folder = result.find(e => e.name === 'folder');
+      const folder = result.find((e: any) => e.name === 'folder');
       expect(folder?.type).toBe('directory');
       
       // Symlinks might be reported as 'file' or 'other' depending on the system
-      const link = result.find(e => e.name === 'link.txt');
+      const link = result.find((e: any) => e.name === 'link.txt');
       expect(link?.type).toBeDefined();
       
       await cleanup();
@@ -160,8 +160,8 @@ describe('ListDirectoryTool', () => {
   describe('validation', () => {
     test('should validate required path parameter', () => {
       expect(() => tool.validate({ path: '/test' })).not.toThrow();
-      expect(() => tool.validate({})).toThrow('Missing required property: path');
-      expect(() => tool.validate({ other: 'value' })).toThrow('Missing required property: path');
+      expect(() => tool.validate({} as any)).toThrow('Missing required property: path');
+      expect(() => tool.validate({ other: 'value' } as any)).toThrow('Missing required property: path');
     });
   });
 });

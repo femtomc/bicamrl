@@ -1,5 +1,5 @@
 export { ToolRegistry } from './registry';
-export type { ToolPermissionRequest, ToolPermissionResponse, PermissionPromptFn } from './registry';
+export type { PermissionPromptFn } from './registry';
 export { BaseTool } from './base-tool';
 export { WorktreeAwareTool } from './worktree-aware-tool';
 

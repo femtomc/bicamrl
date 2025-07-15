@@ -1,6 +1,6 @@
-import { LLMTool } from '../llm/types';
+import type { LLMTool } from '../llm/service';
 import type { WorktreeContext } from '@bicamrl/shared';
-import { ToolPermissionRequest, ToolPermissionResponse } from '../interaction/types';
+import type { ToolPermissionRequest, ToolPermissionResponse } from '../interaction/types';
 import { WorktreeAwareTool } from './worktree-aware-tool';
 
 export type PermissionPromptFn = (request: ToolPermissionRequest) => Promise<ToolPermissionResponse>;

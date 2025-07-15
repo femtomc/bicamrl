@@ -27,7 +27,7 @@ sleep 10
 # Check if interaction is waiting for permission
 echo "Checking interaction status..."
 INTERACTIONS=$(curl -s "${SERVER_URL}/interactions")
-WAITING=$(echo "$INTERACTIONS" | jq -r '.[] | select(.metadata.status == "waiting_for_permission") | .id')
+WAITING=$(echo "$INTERACTIONS" | jq -r '.[] | select(.status == "waiting_for_permission") | .id')
 
 if [ -n "$WAITING" ]; then
     echo "✓ Found interaction waiting for permission: $WAITING"
@@ -38,11 +38,11 @@ if [ -n "$WAITING" ]; then
     "$SCRIPT_DIR/approve-permission.sh"
     echo
     echo "Waiting for tool execution..."
-    sleep 10
+    sleep 15
     
     # Check if tool was executed
     UPDATED=$(curl -s "${SERVER_URL}/interactions")
-    STATUS=$(echo "$UPDATED" | jq -r --arg id "$WAITING" '.[] | select(.id == $id) | .metadata.status')
+    STATUS=$(echo "$UPDATED" | jq -r --arg id "$WAITING" '.[] | select(.id == $id) | .status')
     
     if [ "$STATUS" == "completed" ]; then
         echo "✓ Tool executed successfully"

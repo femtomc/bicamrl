@@ -5,8 +5,8 @@ import { v4 as uuidv4 } from 'uuid';
 export class InMemoryWorktreeStore implements WorktreeStore {
   private worktrees: Map<string, Worktree> = new Map();
 
-  async create(worktree: Omit<Worktree, 'id' | 'createdAt'>): Promise<Worktree> {
-    const newWorktree: Worktree = {
+  async create(worktree: Worktree | Omit<Worktree, 'id' | 'createdAt'>): Promise<Worktree> {
+    const newWorktree: Worktree = 'id' in worktree ? worktree : {
       ...worktree,
       id: uuidv4(),
       createdAt: new Date()

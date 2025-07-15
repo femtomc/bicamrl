@@ -28,13 +28,11 @@ sleep 10
 
 # Check both interactions
 INTERACTIONS=$(curl -s "${SERVER_URL}/interactions")
-STATUS1=$(echo "$INTERACTIONS" | jq -r --arg id "$ID1" '.[] | select(.id == $id) | .metadata.status')
-STATUS2=$(echo "$INTERACTIONS" | jq -r --arg id "$ID2" '.[] | select(.id == $id) | .metadata.status')
-LOCKED1=$(echo "$INTERACTIONS" | jq -r --arg id "$ID1" '.[] | select(.id == $id) | .lockedFor')
-LOCKED2=$(echo "$INTERACTIONS" | jq -r --arg id "$ID2" '.[] | select(.id == $id) | .lockedFor')
+STATUS1=$(echo "$INTERACTIONS" | jq -r --arg id "$ID1" '.[] | select(.id == $id) | .status')
+STATUS2=$(echo "$INTERACTIONS" | jq -r --arg id "$ID2" '.[] | select(.id == $id) | .status')
 
-echo "Interaction 1 - Status: $STATUS1, Locked for: $LOCKED1"
-echo "Interaction 2 - Status: $STATUS2, Locked for: $LOCKED2"
+echo "Interaction 1 - Status: $STATUS1"
+echo "Interaction 2 - Status: $STATUS2"
 
 # Both should be waiting for permission
 if [ "$STATUS1" == "waiting_for_permission" ] && [ "$STATUS2" == "waiting_for_permission" ]; then
@@ -44,13 +42,7 @@ else
     exit 1
 fi
 
-# Both should be locked for user
-if [ "$LOCKED1" == "user" ] && [ "$LOCKED2" == "user" ]; then
-    echo "✓ Both interactions locked for user"
-else
-    echo "✗ Not both locked for user"
-    exit 1
-fi
+# With the new architecture, we don't track "locked for" - Wake processes handle interactions independently
 
 echo
 
@@ -62,8 +54,8 @@ sleep 10
 
 # Check status after first approval
 INTERACTIONS=$(curl -s "${SERVER_URL}/interactions")
-STATUS1=$(echo "$INTERACTIONS" | jq -r --arg id "$ID1" '.[] | select(.id == $id) | .metadata.status')
-STATUS2=$(echo "$INTERACTIONS" | jq -r --arg id "$ID2" '.[] | select(.id == $id) | .metadata.status')
+STATUS1=$(echo "$INTERACTIONS" | jq -r --arg id "$ID1" '.[] | select(.id == $id) | .status')
+STATUS2=$(echo "$INTERACTIONS" | jq -r --arg id "$ID2" '.[] | select(.id == $id) | .status')
 
 echo "After first approval:"
 echo "Interaction 1 - Status: $STATUS1"
@@ -87,8 +79,8 @@ sleep 5
 
 # Final check - both should be completed
 INTERACTIONS=$(curl -s "${SERVER_URL}/interactions")
-STATUS1=$(echo "$INTERACTIONS" | jq -r --arg id "$ID1" '.[] | select(.id == $id) | .metadata.status')
-STATUS2=$(echo "$INTERACTIONS" | jq -r --arg id "$ID2" '.[] | select(.id == $id) | .metadata.status')
+STATUS1=$(echo "$INTERACTIONS" | jq -r --arg id "$ID1" '.[] | select(.id == $id) | .status')
+STATUS2=$(echo "$INTERACTIONS" | jq -r --arg id "$ID2" '.[] | select(.id == $id) | .status')
 
 echo "Final status:"
 echo "Interaction 1 - Status: $STATUS1"

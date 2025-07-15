@@ -8,8 +8,8 @@ export class TestServer {
   constructor(port: number = 3456) {
     this.port = port;
     // Set environment to use mock provider for tests
-    process.env.DEFAULT_PROVIDER = 'mock';
-    process.env.ENABLE_TOOLS = 'false';
+    process.env.DEFAULT_PROVIDER = process.env.DEFAULT_PROVIDER || 'mock';
+    process.env.ENABLE_TOOLS = process.env.ENABLE_TOOLS || 'false';
   }
   
   async start(): Promise<void> {

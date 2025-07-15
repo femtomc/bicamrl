@@ -7,11 +7,11 @@ import { join } from 'path';
 // Mock GitWorktreeOperations
 const mockGitOps = {
   listWorktrees: mock(() => Promise.resolve([])),
-  createWorktree: mock(() => Promise.resolve()),
+  createWorktree: mock((path: string, branch: string) => Promise.resolve()),
   removeWorktree: mock(() => Promise.resolve()),
-  getWorktreeInfo: mock(() => Promise.resolve({
-    path: '/test/worktree',
-    branch: 'test-branch',
+  getWorktreeInfo: mock((path: string) => Promise.resolve({
+    path: path,
+    branch: path.includes('feature-test') ? 'feature-test' : 'test-branch',
     commit: 'abc123',
     isMain: false
   })),
@@ -62,7 +62,7 @@ describe('WorktreeManager', () => {
       
       const worktree = await manager.createWorktree(branch, undefined, customPath);
 
-      expect(worktree.path).toBe('/test/worktree'); // Mock returns this
+      expect(worktree.path).toBe(customPath); // Uses path from gitInfo
       expect(mockGitOps.createWorktree).toHaveBeenCalledWith(customPath, branch, undefined);
     });
 
@@ -161,17 +161,16 @@ describe('WorktreeManager', () => {
   describe('createContext', () => {
     it('should create context for valid worktree', async () => {
       const worktree = await manager.createWorktree('test-branch');
-      const context = manager.createContext('session-123', worktree.id);
+      const context = manager.createContext(worktree.id);
 
       expect(context).toEqual({
-        sessionId: 'session-123',
         worktreeId: worktree.id,
         worktreePath: worktree.path
       });
     });
 
     it('should return null for invalid worktree', () => {
-      const context = manager.createContext('session-123', 'non-existent');
+      const context = manager.createContext('non-existent');
       expect(context).toBeNull();
     });
   });

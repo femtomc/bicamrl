@@ -22,10 +22,11 @@ export type InteractionState =
   | { kind: 'failed'; error: Error; failedAt: Date };
 
 export interface ProcessingResult {
-  response: string;
+  response?: string;
   model?: string;
   usage?: TokenUsage;
   metadata?: Record<string, any>;
+  feedback?: string;
 }
 
 export interface TokenUsage {

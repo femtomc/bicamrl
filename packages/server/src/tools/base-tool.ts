@@ -1,4 +1,4 @@
-import { LLMTool } from '../llm/service';
+import type { LLMTool } from '../llm/service';
 
 export abstract class BaseTool implements LLMTool {
   abstract name: string;

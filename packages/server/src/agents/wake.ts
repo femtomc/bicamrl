@@ -40,7 +40,7 @@ export class WakeAgent extends Agent {
   }
 
 
-  isRelevantInteraction(interaction: Interaction): boolean {
+  public isRelevantInteraction(interaction: Interaction): boolean {
     // If interaction is locked and not for us, skip it
     if (interaction.lockedFor && interaction.lockedFor !== this.agentId) {
       console.log(`[Wake] Skipping interaction ${interaction.id} - locked for ${interaction.lockedFor}`);

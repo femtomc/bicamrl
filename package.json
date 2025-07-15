@@ -44,6 +44,8 @@
     "fmt:check:rust": "cd packages/editor/gui && cargo fmt -- --check",
     "pre-commit": "bun run check:fast && bun run fmt:check",
     "test:send-message": "./scripts/test/send-message.sh",
+    "test:wake": "cd packages/server && bun run test-wake.ts",
+    "test:worktree": "cd packages/server && bun run test-worktree.ts",
     "test:monitor": "./scripts/test/monitor-interactions.sh",
     "test:approve": "./scripts/test/approve-permission.sh",
     "test:deny": "./scripts/test/deny-permission.sh",

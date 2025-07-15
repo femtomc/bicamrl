@@ -8,15 +8,16 @@
     "dev": "bun run --hot src/index.ts",
     "start": "bun run src/index.ts",
     "build": "bun build ./src/index.ts --outdir=./dist --target bun",
+    "wake-process": "bun run src/agents/wake-process.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
-    "test": "bun test",
+    "test": "bun test src tests",
     "test:unit": "bun test tests/unit",
     "test:integration": "bun test tests/integration",
-    "test:watch": "bun test --watch",
-    "test:coverage": "bun test --coverage",
-    "test:ci": "bun test --bail"
+    "test:watch": "bun test src tests --watch",
+    "test:coverage": "bun test src tests --coverage",
+    "test:ci": "bun test src tests --bail"
   },
   "devDependencies": {
     "@types/bun": "latest",

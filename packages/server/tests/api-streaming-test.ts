@@ -14,7 +14,8 @@ describe('API Streaming Updates', () => {
       })
     });
     
-    const { interactionId } = await sendResponse.json();
+    const sendResult = await sendResponse.json() as { id: string };
+    const interactionId = sendResult.id;
     console.log('Interaction ID:', interactionId);
     
     // Poll for updates

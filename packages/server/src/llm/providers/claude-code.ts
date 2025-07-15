@@ -1,4 +1,4 @@
-import { query, type SDKMessage } from '@anthropic-ai/claude-code';
+import { query, type SDKMessage, type SDKResultMessage, type SDKAssistantMessage } from '@anthropic-ai/claude-code';
 import type { LLMProvider, GenerateOptions, LLMResponse } from '../service';
 
 export interface ClaudeCodeConfig {
@@ -56,19 +56,26 @@ export class ClaudeCodeLLMProvider implements LLMProvider {
         const lastMessage = sdkMessages[sdkMessages.length - 1];
         
         // Handle error responses
-        if (lastMessage.type === 'result' && lastMessage.subtype === 'error_max_turns') {
-          // console.warn('[ClaudeCode] Hit max turns limit, using fallback response');
-          return "I understand your request. How can I help you with software development today?";
-        }
-        
-        // The Claude Code SDK returns a result object with a 'result' field
-        if (lastMessage.result) {
-          return lastMessage.result;
+        if (lastMessage && lastMessage.type === 'result') {
+          if (lastMessage.subtype === 'error_max_turns' || lastMessage.subtype === 'error_during_execution') {
+            // console.warn('[ClaudeCode] Hit error:', lastMessage.subtype);
+            return "I understand your request. How can I help you with software development today?";
+          } else if (lastMessage.subtype === 'success' && 'result' in lastMessage) {
+            return lastMessage.result;
+          }
         } else if (typeof lastMessage === 'string') {
           return lastMessage;
-        } else if (lastMessage.type === 'message' && lastMessage.content) {
-          // Handle message type responses
-          return lastMessage.content;
+        } else if (lastMessage && lastMessage.type === 'assistant' && lastMessage.message?.content) {
+          // Handle assistant message type responses
+          if (typeof lastMessage.message.content === 'string') {
+            return lastMessage.message.content;
+          } else if (Array.isArray(lastMessage.message.content)) {
+            // Extract text from content blocks
+            return lastMessage.message.content
+              .filter((block: any) => block.type === 'text')
+              .map((block: any) => block.text)
+              .join('\n');
+          }
         } else {
           // console.error('[ClaudeCode] Unexpected message format:', lastMessage);
           // Return a fallback response instead of throwing
@@ -174,8 +181,8 @@ export class ClaudeCodeLLMProvider implements LLMProvider {
       // Extract the assistant's response from sdkMessages
       if (sdkMessages.length > 0) {
         // Find the result message or last assistant message
-        const resultMessage = sdkMessages.find(m => m.type === 'result' && m.result);
-        const assistantMessage = sdkMessages.find(m => m.type === 'assistant');
+        const resultMessage = sdkMessages.find(m => m.type === 'result' && m.subtype === 'success') as Extract<SDKResultMessage, { subtype: 'success' }> | undefined;
+        const assistantMessage = sdkMessages.find(m => m.type === 'assistant') as SDKAssistantMessage | undefined;
         
         let content = '';
         let actualUsage = null;
@@ -197,22 +204,20 @@ export class ClaudeCodeLLMProvider implements LLMProvider {
           }
         }
         
-        if (resultMessage && resultMessage.result) {
+        if (resultMessage) {
           content = resultMessage.result;
           // Use actual usage from result if available
-          if (resultMessage.usage) {
-            actualUsage = {
-              inputTokens: resultMessage.usage.input_tokens,
-              outputTokens: resultMessage.usage.output_tokens,
-              totalTokens: resultMessage.usage.input_tokens + resultMessage.usage.output_tokens
-            };
-          }
+          actualUsage = {
+            inputTokens: resultMessage.usage.input_tokens,
+            outputTokens: resultMessage.usage.output_tokens,
+            totalTokens: resultMessage.usage.input_tokens + resultMessage.usage.output_tokens
+          };
         } else if (assistantMessage && assistantMessage.message) {
           // Extract content from assistant message
           if (Array.isArray(assistantMessage.message.content)) {
             content = assistantMessage.message.content
-              .filter(block => block.type === 'text')
-              .map(block => block.text)
+              .filter((block: any) => block.type === 'text')
+              .map((block: any) => block.text)
               .join('');
           } else if (typeof assistantMessage.message.content === 'string') {
             content = assistantMessage.message.content;

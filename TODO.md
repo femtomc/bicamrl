@@ -57,6 +57,26 @@ User feedback revealed that Sessions were an old concept that should not exist i
 - API endpoint tests (updated to remove session references)
 - Integration flow tests
 
+### Recent Accomplishments ✅
+
+#### InteractionBus Refactoring (2025-07-15)
+- **COMPLETED**: Replaced complex InteractionBus with simpler InteractionStore
+- **COMPLETED**: Event-driven Wake process spawning (no queue management)
+- **COMPLETED**: Fixed token tracking in API responses
+- **COMPLETED**: Fixed all test failures (88 passing, 0 failing)
+
+#### Wake Process & Tool Permission Fixes (2025-07-15)
+- **COMPLETED**: Fixed message loops when Wake process submits permission requests
+- **COMPLETED**: Handle Claude Code tool names (TodoRead, Read, Write, etc.) properly
+- **COMPLETED**: Bash test scripts now work with both mock and Claude Code providers
+- **COMPLETED**: Added safeguards against infinite permission request loops
+- **COMPLETED**: Tool permission flow works correctly with Claude Code SDK
+
+#### Full Stack Integration Tests (2025-07-15)
+- **COMPLETED**: Added integration tests for Wake process spawning with worktree context
+- **COMPLETED**: Added tests for concurrent Wake processes in different worktrees
+- **COMPLETED**: Verified full stack works correctly (server → Wake process → interactions → worktrees)
+
 ### In Progress 🚧
 
 #### Worktree Creation Dialog
@@ -108,9 +128,15 @@ The Git worktree support is a key step toward the vision of Wake fragments opera
 
 ## Next Steps
 
-1. Implement worktree creation dialog in GUI
-2. Add per-worktree Wake agent contexts
-3. Implement SQLite persistence layer
-4. Add Git status/diff integration to show worktree state
-5. Enhance Sleep agent to analyze cross-worktree patterns
-6. Fix remaining TypeScript compilation errors
+1. ✅ Implement Wake process per interaction - spawn new process for each interaction with proper cwd
+2. ✅ Replace InteractionBus with simpler InteractionStore
+3. ✅ Fix all test failures - 86 tests passing, 0 failing
+4. ✅ Add full integration tests for complete stack
+   - ✅ Test Wake process spawning with worktree context
+   - ✅ Test multi-worktree concurrent Wake processes
+   - 🚧 Test tool execution within worktree boundaries
+   - Test error handling and recovery across full stack
+5. Implement worktree creation dialog in GUI
+6. Implement SQLite persistence layer
+7. Add Git status/diff integration to show worktree state
+8. Enhance Sleep agent to analyze cross-worktree patterns

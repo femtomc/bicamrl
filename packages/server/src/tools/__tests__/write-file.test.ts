@@ -85,13 +85,13 @@ describe('WriteFileTool', () => {
     });
     
     test('should handle missing parameters', async () => {
-      await expect(tool.execute({ path: '/test.txt' }))
+      await expect(tool.execute({ path: '/test.txt' } as any))
         .rejects.toThrow('Missing required property: content');
       
-      await expect(tool.execute({ content: 'test' }))
+      await expect(tool.execute({ content: 'test' } as any))
         .rejects.toThrow('Missing required property: path');
       
-      await expect(tool.execute({}))
+      await expect(tool.execute({} as any))
         .rejects.toThrow('Missing required property: path');
     });
     

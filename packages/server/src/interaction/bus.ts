@@ -200,6 +200,10 @@ export class InteractionBus {
   }
 
 
+  getInteraction(id: string): Interaction | null {
+    return this.interactions.get(id) || null;
+  }
+
   getAllInteractions(): any[] {
     const allInteractions: any[] = [];
     
@@ -310,5 +314,40 @@ export class InteractionBus {
     });
     
     console.log(`[Bus] Permission response for ${interactionId}: ${approved ? 'approved' : 'denied'}`);
+  }
+
+  async closeInteraction(interactionId: string, feedback?: string): Promise<void> {
+    const interaction = this.interactions.get(interactionId);
+    
+    if (!interaction) {
+      throw new Error(`Interaction ${interactionId} not found`);
+    }
+    
+    // Update to closed state with feedback
+    let updatedInteraction = interaction
+      .withState({
+        kind: 'completed',
+        result: { feedback },
+        completedAt: new Date()
+      })
+      .withMetadata({
+        ...interaction.metadata,
+        closed: true,
+        feedback
+      });
+    
+    this.interactions.set(interactionId, updatedInteraction);
+    
+    // Emit event
+    await this.emitEvent({
+      type: 'interaction_updated',
+      timestamp: new Date(),
+      data: {
+        interactionId: interaction.id,
+        status: 'closed'
+      }
+    });
+    
+    console.log(`[Bus] Closed interaction ${interactionId}`);
   }
 }

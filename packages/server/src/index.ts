@@ -22,3 +22,5 @@ console.log('  GET /interactions - Get all interactions');
 console.log('  GET /interactions/:id - Get single interaction');
 console.log('  POST /interactions/:id/permission - Respond to permission request');
 console.log('  GET /stream - SSE stream for real-time updates');
+console.log('  POST /worktrees - Create a new worktree');
+console.log('  GET /worktrees - List all worktrees');

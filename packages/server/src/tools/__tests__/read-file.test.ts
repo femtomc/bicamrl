@@ -68,7 +68,7 @@ describe('ReadFileTool', () => {
     });
     
     test('should handle missing path parameter', async () => {
-      await expect(tool.execute({}))
+      await expect(tool.execute({} as any))
         .rejects.toThrow('Missing required property: path');
     });
     

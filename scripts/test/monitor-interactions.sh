@@ -20,11 +20,12 @@ while true; do
     # Parse and display each interaction
     echo "$INTERACTIONS" | jq -r '.[] | 
         "ID: \(.id)",
-        "Type: \(.type)",
+        "Type: \(.interaction_type)",
         "Source: \(.source)", 
-        "Status: \(.metadata.status // "active")",
-        "Locked for: \(.lockedFor // "none")",
+        "Status: \(.status)",
+        "Worktree: \(.metadata.worktreeContext.worktreePath // "none")",
         "Messages: \(.content | length)",
+        if .permission_request then "Permission Request: \(.permission_request.toolName)" else empty end,
         "---"'
     
     sleep 2
