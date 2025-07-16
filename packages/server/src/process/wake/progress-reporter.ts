@@ -32,7 +32,9 @@ export class ProgressReporter {
         await this.onUpdate({ 
           currentAction,
           startedAt: new Date(this.startTime!),
-          processor: 'wake'
+          processor: 'wake',
+          elapsedTime: elapsed,
+          currentTokens: 0  // Will be updated when tokens are reported
         });
         this.updateCount++;
       } catch (error) {
@@ -64,7 +66,9 @@ export class ProgressReporter {
       await this.onUpdate({ 
         currentAction,
         startedAt: new Date(this.startTime),
-        processor: 'wake'
+        processor: 'wake',
+        elapsedTime: elapsed,
+        currentTokens: completionTokens
       });
       this.updateCount++;
     } catch (error) {

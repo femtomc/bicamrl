@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
-import { Message, MessageStatus } from './types';
+import type { Message } from './types';
+import { MessageStatus } from './types';
 
 export interface MessageEvent {
   type: 'message:added' | 'message:updated';
@@ -128,7 +129,7 @@ export class MessageStore extends EventEmitter {
    */
   getLastMessage(interactionId: string): Message | null {
     const messages = this.getMessages(interactionId);
-    return messages.length > 0 ? messages[messages.length - 1] : null;
+    return messages.length > 0 ? messages[messages.length - 1]! : null;
   }
 
   /**

@@ -33,6 +33,7 @@
     "@bicamrl/shared": "workspace:*",
     "@hono/zod-validator": "^0.7.0",
     "@iarna/toml": "^2.2.5",
+    "@modelcontextprotocol/sdk": "^1.15.1",
     "@types/uuid": "^10.0.0",
     "hono": "^4.8.4",
     "openai": "^5.8.2",

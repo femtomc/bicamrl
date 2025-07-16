@@ -1,12 +1,13 @@
 /**
  * Wake Processor V2 - Message-based processing
  * Handles conversations with multiple messages
+ * 
+ * Now uses the Agent abstraction for all LLM interactions
  */
 
 import { loadMindConfig } from '../../config/mind';
-import { LLMService, MockLLMProvider } from '../../llm/service';
-import { ClaudeCodeLLMProvider } from '../../llm/providers/claude-code';
-import { LMStudioLLMProvider } from '../../llm/providers/lmstudio';
+import { createAgent } from '../../agents/factory';
+import type { Agent } from '../../agents/types';
 import { WakeApiClient } from './api-client';
 import { SSEHandler } from './sse-handler';
 import { ProgressReporter } from './progress-reporter';
@@ -17,7 +18,7 @@ export class WakeProcessor {
   private apiClient: WakeApiClient;
   private sseHandler: SSEHandler;
   private progressReporter: ProgressReporter;
-  private llmService?: LLMService;
+  private agent?: Agent;
   
   private processedMessageIds = new Set<string>();
   private processingStartTime?: number;
@@ -67,18 +68,20 @@ export class WakeProcessor {
   }
 
   private async initializeServices(): Promise<void> {
-    // Initialize LLM
+    // Initialize agent based on configured provider
     const mindConfig = loadMindConfig();
-    this.llmService = new LLMService(mindConfig.default_provider);
-    this.llmService.registerProvider('mock', new MockLLMProvider());
-    this.llmService.registerProvider('claude_code', new ClaudeCodeLLMProvider());
-    this.llmService.registerProvider('lmstudio', new LMStudioLLMProvider({
-      baseURL: mindConfig.llm_providers?.lmstudio?.api_base,
-      model: mindConfig.llm_providers?.lmstudio?.model,
-    }));
+    const provider = mindConfig.default_provider;
     
-    // Claude Code handles its own tools and permissions
-    console.log('[WakeProcessor] Using Claude Code with its built-in tools');
+    console.log(`[WakeProcessor] Creating agent for provider: ${provider}`);
+    
+    this.agent = await createAgent({
+      provider,
+      interactionId: this.interactionId,
+      serverUrl: this.serverUrl,
+      config: mindConfig.llm_providers?.[provider]
+    });
+    
+    console.log('[WakeProcessor] Agent initialized successfully');
   }
 
   private async loadAndProcessMessages(): Promise<void> {
@@ -131,26 +134,14 @@ export class WakeProcessor {
       
       // Get full conversation history
       const conversation = await this.apiClient.getConversation();
-      const messages = conversation.messages
-        .filter((m: any) => m.role !== 'system' || m.metadata?.permissionRequest)
-        .map((m: any) => ({
-          role: m.role,
-          content: m.content
-        }));
+      const interaction = conversation; // In new architecture, conversation IS the interaction
       
-      // Process with LLM (Claude Code uses its own tools)
-      let result = await this.llmService!.completeWithTools(
-        messages,
-        [] // Don't pass tools - Claude Code has its own
-      );
+      // Process with agent
+      const agentResponse = await this.agent!.process(interaction, conversation.messages);
       
-      // Claude Code handles tool execution internally
-      // Just track what tools were used for metadata
-      if (result.toolCalls && result.toolCalls.length > 0) {
-        for (const toolCall of result.toolCalls) {
-          this.toolsUsed.push(toolCall.name);
-          console.log(`[WakeProcessor] Claude Code used tool: ${toolCall.name}`);
-        }
+      // Track tools used
+      if (agentResponse.toolCalls && agentResponse.toolCalls.length > 0) {
+        this.toolsUsed = agentResponse.metadata?.toolsUsed || [];
         this.progressReporter.updateToolsUsed(this.toolsUsed);
       }
       
@@ -159,10 +150,11 @@ export class WakeProcessor {
       
       // Submit assistant response
       const processingTime = Date.now() - this.processingStartTime;
-      await this.apiClient.submitAssistantResponse(result.content, {
+      await this.apiClient.submitAssistantResponse(agentResponse.content, {
         processingTimeMs: processingTime,
-        usage: result.usage,
-        toolsUsed: this.toolsUsed
+        usage: agentResponse.metadata?.usage,
+        toolsUsed: this.toolsUsed,
+        model: agentResponse.metadata?.model
       });
       
       // Update message status
@@ -192,5 +184,9 @@ export class WakeProcessor {
     console.log('[WakeProcessor] Stopping...');
     this.progressReporter.stop();
     await this.sseHandler.disconnect();
+    
+    if (this.agent && this.agent.cleanup) {
+      await this.agent.cleanup();
+    }
   }
 }

@@ -3,7 +3,7 @@
  * Provides clear separation between permanent context, temporary processing state, and results
  */
 
-import { TokenUsage } from './types';
+import type { TokenUsage } from '../llm/service';
 
 /**
  * Permanent context that travels with the interaction

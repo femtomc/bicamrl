@@ -238,6 +238,104 @@ export const createApp = async (options?: { port?: number }) => {
     }
   });
   
+  // Permission status - for checking if permission was granted/denied
+  app.get('/permissions/:requestId/status', async (c) => {
+    try {
+      const requestId = c.req.param('requestId');
+      
+      // Find the permission request in all interactions
+      // This is a simple implementation - in production you'd want a dedicated permission store
+      const interactions = interactionStore.getAll();
+      
+      for (const interaction of interactions) {
+        const messages = messageStore.getMessages(interaction.id);
+        
+        // Find permission request message
+        const permissionRequest = messages.find(m => 
+          m.metadata?.permissionRequest?.requestId === requestId
+        );
+        
+        if (permissionRequest) {
+          // Check if there's a response after the request
+          const requestIndex = messages.indexOf(permissionRequest);
+          const responseMessage = messages.slice(requestIndex + 1).find(m => 
+            m.metadata?.permissionResponse !== undefined
+          );
+          
+          if (responseMessage) {
+            return c.json({ 
+              status: responseMessage.metadata.permissionResponse ? 'approved' : 'denied' 
+            });
+          } else {
+            return c.json({ status: 'pending' });
+          }
+        }
+      }
+      
+      return c.json({ status: 'not_found' }, 404);
+      
+    } catch (error: any) {
+      console.error('[API] Error getting permission status:', error);
+      return c.json({ error: 'Failed to get permission status' }, 500);
+    }
+  });
+  
+  // Approve permission shortcut
+  app.post('/permissions/:requestId/approve', async (c) => {
+    try {
+      const requestId = c.req.param('requestId');
+      
+      // Find which interaction this permission belongs to
+      const interactions = interactionStore.getAll();
+      
+      for (const interaction of interactions) {
+        const messages = messageStore.getMessages(interaction.id);
+        const hasRequest = messages.some(m => 
+          m.metadata?.permissionRequest?.requestId === requestId
+        );
+        
+        if (hasRequest) {
+          await conversationService.handlePermissionResponse(interaction.id, true);
+          return c.json({ success: true });
+        }
+      }
+      
+      return c.json({ error: 'Permission request not found' }, 404);
+      
+    } catch (error: any) {
+      console.error('[API] Error approving permission:', error);
+      return c.json({ error: 'Failed to approve permission' }, 500);
+    }
+  });
+  
+  // Deny permission shortcut  
+  app.post('/permissions/:requestId/deny', async (c) => {
+    try {
+      const requestId = c.req.param('requestId');
+      
+      // Find which interaction this permission belongs to
+      const interactions = interactionStore.getAll();
+      
+      for (const interaction of interactions) {
+        const messages = messageStore.getMessages(interaction.id);
+        const hasRequest = messages.some(m => 
+          m.metadata?.permissionRequest?.requestId === requestId
+        );
+        
+        if (hasRequest) {
+          await conversationService.handlePermissionResponse(interaction.id, false);
+          return c.json({ success: true });
+        }
+      }
+      
+      return c.json({ error: 'Permission request not found' }, 404);
+      
+    } catch (error: any) {
+      console.error('[API] Error denying permission:', error);
+      return c.json({ error: 'Failed to deny permission' }, 500);
+    }
+  });
+  
   // SSE endpoint
   app.get('/stream', (c) => {
     const stream = createSSEStream(interactionStore, messageStore);

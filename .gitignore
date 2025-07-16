@@ -28,6 +28,10 @@ pip-delete-this-directory.txt
 # Git worktrees
 packages/server/worktrees/
 
+# Test artifacts
+load-test-results-*.json
+bun-test-*
+
 # Virtual environments
 .env
 .venv

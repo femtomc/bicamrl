@@ -1,5 +1,8 @@
 import { query, type SDKMessage, type SDKResultMessage, type SDKAssistantMessage } from '@anthropic-ai/claude-code';
 import type { LLMProvider, GenerateOptions, LLMResponse } from '../service';
+import type { AgenticProvider, AgenticConfig, AgenticResponse, LLMOptions } from '../provider-types';
+import type { Message } from '../../message/types';
+import { resolve } from 'path';
 
 export interface ClaudeCodeConfig {
   model?: string;
@@ -9,8 +12,10 @@ export interface ClaudeCodeConfig {
 /**
  * Claude Code provider - Uses the Claude Code SDK
  * This provider communicates with Claude through the official SDK
+ * 
+ * Implements both LLMProvider (legacy) and AgenticProvider (new) interfaces
  */
-export class ClaudeCodeLLMProvider implements LLMProvider {
+export class ClaudeCodeLLMProvider implements LLMProvider, AgenticProvider {
   private defaultModel: string;
   private defaultMaxTokens: number;
   
@@ -111,7 +116,7 @@ export class ClaudeCodeLLMProvider implements LLMProvider {
   }
   
   
-  async completeWithTools(messages: any[], tools: any[], options?: GenerateOptions & { onTokenUpdate?: (tokens: number) => void }): Promise<LLMResponse> {
+  async completeWithTools(messages: any[], tools: any[], options?: GenerateOptions & { onTokenUpdate?: (tokens: number) => void; interactionId?: string; serverUrl?: string }): Promise<LLMResponse> {
     try {
       // Don't pass tools to Claude Code - it uses its own built-in tools
       // We'll translate its tool calls to our standard names
@@ -135,12 +140,25 @@ export class ClaudeCodeLLMProvider implements LLMProvider {
       }, 60000); // 60 second timeout
       
       try {
+        // Build MCP server configuration if interaction ID and server URL provided
+        const mcpServers = options?.interactionId && options?.serverUrl ? {
+          "bicamrl-permissions": {
+            command: "bun",
+            args: [resolve(__dirname, "../../services/mcp-permission-server-runner.ts")],
+            env: {
+              "INTERACTION_ID": options.interactionId,
+              "SERVER_URL": options.serverUrl
+            }
+          }
+        } : undefined;
+
         for await (const message of query({
           prompt: prompt,
           abortController,
           options: {
             maxTurns: 3, // Allow multiple turns for tool use
-            // Use default permission mode - let Claude Code handle it
+            permissionMode: 'default', // Use default permission handling
+            ...(mcpServers && { mcpServers }) // Include MCP servers if configured
           },
         })) {
           sdkMessages.push(message);
@@ -272,6 +290,59 @@ export class ClaudeCodeLLMProvider implements LLMProvider {
     } catch (error) {
       // console.error('[ClaudeCode] completeWithTools error:', error);
       throw error;
+    }
+  }
+
+  /**
+   * AgenticProvider implementation
+   * Claude Code is already agentic, so this is mostly pass-through
+   */
+  async execute(
+    messages: Message[], 
+    config?: AgenticConfig,
+    options?: LLMOptions
+  ): Promise<AgenticResponse> {
+    // Convert Message[] to our internal format
+    const internalMessages = messages.map(msg => ({
+      role: msg.role,
+      content: msg.content
+    }));
+
+    // Use existing completeWithTools method
+    const response = await this.completeWithTools(
+      internalMessages,
+      [], // Claude Code manages its own tools
+      {
+        temperature: options?.temperature,
+        maxTokens: options?.maxTokens,
+        stopSequences: options?.stopSequences,
+        model: options?.model,
+        onTokenUpdate: options?.onTokenUpdate,
+        interactionId: config?.interactionId,
+        serverUrl: config?.mcpServerUrl
+      }
+    );
+
+    // Convert to AgenticResponse
+    return {
+      content: response.content,
+      toolCalls: response.toolCalls,
+      usage: response.usage,
+      metadata: {
+        model: response.model || this.defaultModel,
+        mcpServerUrl: config?.mcpServerUrl
+      }
+    };
+  }
+
+  async checkHealth(): Promise<boolean> {
+    try {
+      // Try a simple query to check if Claude Code is responsive
+      const testMessages = [{ role: 'user', content: 'test' }];
+      const result = await this.generate('test');
+      return !!result;
+    } catch {
+      return false;
     }
   }
 }

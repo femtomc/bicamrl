@@ -6,34 +6,42 @@ CRITICAL: When working on this project, you are to be direct, and ruthlessly hon
 
 Bicamrl is an experimental concurrent interaction development environment (CIDE) that explores new paradigms for human-AI collaboration. Unlike traditional chat-based tools, Bicky structures interactions richly, allowing a "legion of agents" to learn from user interactions and collaborate amongst themselves.
 
-## Current State (2025-07-15)
+## Current State (2025-07-16)
 
 ### Major Components Implemented
-- **InteractionStore**: Simplified from InteractionBus - handles storage and events
+- **Agent Architecture**: Full agent abstraction with PermissionStrategy interface
+- **MCP Integration**: Claude Code SDK with isolated MCP servers per interaction
+- **Process Isolation**: One Wake process per interaction with health monitoring
+- **Event-Driven Architecture**: Clean separation of Interactions and Messages
+- **Comprehensive Testing**: Unit and integration tests for all components
 - **Git Worktree Support**: Full integration allowing isolated development contexts
-- **Wake Process Architecture**: Event-driven spawning per interaction
-- **GUI with Worktree Management**: Complete UI for creating/selecting worktrees
 - **Real-time Processing Updates**: Live token counts and progress animations
-- **Tool Permission System**: Works with both mock and Claude Code providers
 
 ## Core Concepts
 
-### Wake and Sleep Architecture
-- **Wake Agent**: Active processor that handles user queries and performs actions
-  - Spawns as separate process per interaction for isolation
-  - Runs in worktree directory when worktree context provided
-  - Supports real-time progress updates during processing
-- **Sleep Agent**: Passive observer that analyzes patterns and provides feedback to improve Wake's performance
-- **InteractionStore**: Simplified storage + event system (replaced complex InteractionBus)
+### Agent Architecture
+- **Agent Interface**: Core abstraction for all LLM providers
+  - `process()`: Handle interactions and generate responses
+  - `handleToolCall()`: Execute tool calls with proper permissions
+  - Provider-specific implementations (ClaudeCodeAgent, MockAgent)
+- **Wake Process**: Orchestrator that manages agent lifecycle
+  - One process per interaction for complete isolation
+  - Runs in worktree directory when context provided
+  - Real-time progress updates via SSE
+- **MCP Servers**: Model Context Protocol servers for tool permissions
+  - One MCP server per Claude Code instance
+  - Handles approval_prompt tool for permission requests
+  - Complete isolation between interactions
+- **Sleep Agent**: Future implementation for pattern analysis
 
 ### Key Features
-- Rich interaction types beyond simple chat (queries, actions, observations, feedback)
-- Git worktree integration for isolated development contexts
-- Pluggable LLM providers (Claude Code, Mock for testing)
-- Tool system with worktree-aware file operations
-- Real-time updates via Server-Sent Events (SSE)
-- Processing animations with live token counts
-- Tool permission flow with UI approval/denial
+- **Agent-Based Architecture**: Pluggable agents with heterogeneous permission strategies
+- **MCP Integration**: Native support for Claude Code's Model Context Protocol
+- **Process Isolation**: Each interaction runs in its own process with resource limits
+- **Event-Driven Design**: Clean separation between Interactions and Messages
+- **Git Worktree Integration**: Isolated development contexts per interaction
+- **Real-time Updates**: SSE for progress, token counts, and processing status
+- **Tool Permission System**: Flexible permission strategies per provider
 
 ## Architecture
 
@@ -42,13 +50,22 @@ bicamrl/
 ├── packages/
 │   ├── server/          # TypeScript/Bun backend server
 │   │   ├── src/
-│   │   │   ├── agents/  # Wake and Sleep agent implementations
+│   │   │   ├── agents/  # Agent implementations and strategies
+│   │   │   │   ├── types.ts              # Core Agent interface
+│   │   │   │   ├── claude-code-agent.ts  # Claude Code pass-through
+│   │   │   │   ├── mock-agent.ts         # Testing agent
+│   │   │   │   └── permission-strategies/ # Permission handling
 │   │   │   ├── api/     # REST API routes  
-│   │   │   ├── interaction/ # Interaction types and store
-│   │   │   ├── llm/     # LLM provider abstraction
-│   │   │   ├── tools/   # Tool registry and implementations
+│   │   │   ├── interaction/ # Interaction container types
+│   │   │   ├── message/    # Message content and store
+│   │   │   ├── process/    # Process management and Wake
+│   │   │   ├── services/   # Business logic services
+│   │   │   │   ├── conversation-service.ts
+│   │   │   │   ├── worktree-service.ts
+│   │   │   │   └── mcp-permission-server.ts
+│   │   │   ├── llm/     # LLM provider interfaces
 │   │   │   └── worktree/ # Git worktree management
-│   │   └── tests/       # Comprehensive test suite
+│   │   └── tests/       # Unit and integration tests
 │   ├── shared/          # Shared types between server and editor
 │   └── editor/          # Rust-based editor implementation
 │       ├── core/        # UI-agnostic state management
@@ -83,24 +100,28 @@ bun run typecheck
 ### Adding New Features
 
 #### Creating a New Agent
-1. Extend the `Agent` base class in `packages/server/src/core/agent.ts`
-2. Implement required abstract methods:
-   - `interestedInTypes()`: Declare which interaction types to process
-   - `checkTriggers()`: Define when the agent should run
-   - `isRelevantInteraction()`: Filter interactions
-   - `processInteraction()`: Main processing logic
-   - `wantsToReview()`: Decide if agent should review results
+1. Implement the `Agent` interface in `packages/server/src/agents/types.ts`
+2. Required methods:
+   - `initialize()`: Set up agent resources (MCP servers, connections)
+   - `process(interaction, messages)`: Main processing logic
+   - `handleToolCall(call)`: Execute tool calls with permissions
+   - `cleanup()`: Clean up resources
+3. Add agent factory case in `packages/server/src/agents/factory.ts`
 
 #### Adding LLM Providers
-1. Create new provider in `packages/server/src/llm/providers/`
-2. Implement the LLM provider interface
-3. Register in `packages/server/src/llm/service.ts`
-4. Add configuration to `Mind.toml`
+1. Create provider in `packages/server/src/llm/providers/`
+2. Implement either:
+   - `RawLLMProvider`: For text-only providers (LM Studio, OpenAI)
+   - `AgenticProvider`: For full agent systems (Claude Code)
+3. Create corresponding agent in `packages/server/src/agents/`
+4. Register in agent factory and Mind.toml
 
-#### Extending Interaction Types
-1. Add new types to `packages/server/src/interaction/types.ts`
-2. Create content type helpers in `packages/server/src/interaction/content-types.ts`
-3. Update agents to handle new interaction types
+#### MCP Server Integration
+Claude Code uses MCP (Model Context Protocol) servers for tool permissions:
+1. Each interaction spawns its own MCP server instance
+2. MCP server handles `approval_prompt` tool calls
+3. Communicates with main server for permission UI
+4. Completely isolated per interaction
 
 ### Testing Strategy
 - Unit tests for individual components
@@ -182,11 +203,27 @@ bun test tool-permissions
 
 ## Claude Code Integration
 
-When using Claude Code as the LLM provider:
-- Claude Code SDK uses its own tools (Read, Write, etc.) 
-- Set `maxTurns` > 1 to allow tool use (we use 3)
-- Tool calls are extracted from SDK messages
-- Permission requests work through Bicamrl's interaction flow
+Claude Code has deep integration with Bicamrl:
+- **MCP Server**: Each instance gets its own MCP server for permissions
+- **Native Tools**: Uses Claude Code's built-in tools (Read, Write, etc.)
+- **Tool Permissions**: Handled via MCP protocol with UI approval flow
+- **Process Isolation**: Each interaction runs in separate process
+- **Configuration**: Set `maxTurns: 3` for multi-turn tool usage
+
+### MCP Server Architecture
+```javascript
+// Each Claude Code instance configures its MCP server:
+mcpServers: {
+  "bicamrl-permissions": {
+    command: "bun",
+    args: ["mcp-permission-server-runner.ts"],
+    env: {
+      "INTERACTION_ID": interactionId,
+      "SERVER_URL": serverUrl
+    }
+  }
+}
+```
 
 ## Recent Fixes & Known Issues
 
