@@ -5,7 +5,7 @@ import { promisify } from 'util';
 const execAsync = promisify(exec);
 
 export class GrepTool extends BaseTool {
-  name = 'Grep';
+  name = 'grep';
   description = 'Search for patterns in files';
 
   async execute(args: any, worktreeContext?: any): Promise<string> {

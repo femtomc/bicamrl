@@ -5,7 +5,7 @@ import { promisify } from 'util';
 const execAsync = promisify(exec);
 
 export class BashTool extends BaseTool {
-  name = 'Bash';
+  name = 'bash';
   description = 'Execute bash commands';
 
   async execute(args: any, worktreeContext?: any): Promise<string> {

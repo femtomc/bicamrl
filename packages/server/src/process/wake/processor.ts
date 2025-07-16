@@ -6,7 +6,7 @@
 import { loadMindConfig } from '../../config/mind';
 import { LLMService, MockLLMProvider } from '../../llm/service';
 import { ClaudeCodeLLMProvider } from '../../llm/providers/claude-code';
-import { ToolRegistry, ReadFileTool, WriteFileTool, ListDirectoryTool, BashTool, GrepTool } from '../../tools';
+import { ToolRegistry, ReadFileTool, WriteFileTool, ListDirectoryTool, BashTool, GrepTool, TodoWriteTool } from '../../tools';
 import { WakeApiClient } from './api-client';
 import { SSEHandler } from './sse-handler';
 import { ProgressReporter } from './progress-reporter';
@@ -85,6 +85,7 @@ export class WakeProcessor {
       toolRegistry.register(new ListDirectoryTool());
       toolRegistry.register(new BashTool());
       toolRegistry.register(new GrepTool());
+      toolRegistry.register(new TodoWriteTool());
       
       this.toolExecutor = new ToolExecutor(
         toolRegistry,

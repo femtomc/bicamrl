@@ -9,3 +9,4 @@ export { WriteFileTool } from './write-file';
 export { ListDirectoryTool } from './list-directory';
 export { BashTool } from './bash';
 export { GrepTool } from './grep';
+export { TodoWriteTool } from './todo-write';
