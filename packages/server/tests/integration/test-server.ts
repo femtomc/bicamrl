@@ -21,12 +21,13 @@ export class TestServer {
     }
     
     // Import app here to ensure environment is set first
-    const app = await import('../../src/api/routes');
+    const { createApp } = await import('../../src/api/routes');
+    const app = await createApp({ port: this.port });
     
     // Start the server
     this.server = serve({
       port: this.port,
-      fetch: app.default.fetch
+      fetch: app.fetch
     });
     
     // Wait for server to be ready
@@ -43,7 +44,7 @@ export class TestServer {
   private async waitForServer(maxAttempts: number = 30): Promise<void> {
     for (let i = 0; i < maxAttempts; i++) {
       try {
-        const response = await fetch(`http://localhost:${this.port}/status`);
+        const response = await fetch(`http://localhost:${this.port}/health`);
         if (response.ok) {
           return;
         }

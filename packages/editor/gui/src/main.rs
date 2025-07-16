@@ -118,7 +118,11 @@ impl BickyApp {
                 // Check if we already have this interaction cached
                 let needs_fetch = if let Some(cached) = self.interaction_cache.get(&id) {
                     // Check if status changed (main reason for updates)
-                    cached.get("status").and_then(|v| v.as_str()) != Some("completed")
+                    // Status is in state.kind
+                    let status = cached.get("state")
+                        .and_then(|s| s.get("kind"))
+                        .and_then(|v| v.as_str());
+                    status != Some("completed")
                 } else {
                     true
                 };
@@ -138,9 +142,14 @@ impl BickyApp {
                             
                             // Process the interaction
                             let interaction = &interaction;
-                            if let Some(status) = interaction.get("status").and_then(|v| v.as_str()) {
-                                // Find which conversation this interaction belongs to
-                                if let Some(conv_idx) = self.find_conversation_by_message_id(&id) {
+                            // Status is in state.kind, not top-level status
+                            let status = interaction.get("state")
+                                .and_then(|s| s.get("kind"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("unknown");
+                            
+                            // Find which conversation this interaction belongs to
+                            if let Some(conv_idx) = self.find_conversation_by_message_id(&id) {
                                 match status {
                                     "processing" => {
                                         // Extract metadata during processing
@@ -267,7 +276,6 @@ impl BickyApp {
                                         }
                                     }
                                     _ => {}
-                                }
                                 }
                             }
                         }

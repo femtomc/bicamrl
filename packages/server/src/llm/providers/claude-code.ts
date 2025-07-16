@@ -126,7 +126,7 @@ export class ClaudeCodeLLMProvider implements LLMProvider {
       
       prompt += '\n\nAssistant:';
       
-      // console.log('[ClaudeCode] Completing with tools, prompt:', prompt.substring(0, 100) + '...');
+      console.log('[ClaudeCode] Completing with tools, prompt:', prompt.substring(0, 200) + '...');
       
       const sdkMessages: SDKMessage[] = [];
       const abortController = new AbortController();
@@ -178,11 +178,19 @@ export class ClaudeCodeLLMProvider implements LLMProvider {
         clearTimeout(timeout);
       }
       
+      console.log('[ClaudeCode] Received SDK messages:', sdkMessages.length);
+      
       // Extract the assistant's response from sdkMessages
       if (sdkMessages.length > 0) {
         // Find the result message or last assistant message
         const resultMessage = sdkMessages.find(m => m.type === 'result' && m.subtype === 'success') as Extract<SDKResultMessage, { subtype: 'success' }> | undefined;
         const assistantMessage = sdkMessages.find(m => m.type === 'assistant') as SDKAssistantMessage | undefined;
+        
+        console.log('[ClaudeCode] Found messages:', {
+          hasResult: !!resultMessage,
+          hasAssistant: !!assistantMessage,
+          messageTypes: sdkMessages.map(m => m.type)
+        });
         
         let content = '';
         let actualUsage = null;
@@ -194,6 +202,7 @@ export class ClaudeCodeLLMProvider implements LLMProvider {
             for (const block of msg.message.content) {
               if (block.type === 'tool_use') {
                 // Found a tool call!
+                console.log(`[ClaudeCode] Tool call found: ${block.name}`, block.input);
                 toolCalls.push({
                   id: block.id,
                   name: block.name,
@@ -245,12 +254,21 @@ export class ClaudeCodeLLMProvider implements LLMProvider {
           totalTokens: Math.ceil(prompt.length / 4) + Math.ceil(content.length / 4)
         };
         
-        return {
+        const response = {
           content,
           model: this.defaultModel,
           usage,
           toolCalls: toolCalls.length > 0 ? toolCalls : undefined
         };
+        
+        console.log('[ClaudeCode] Final response:', {
+          contentLength: content.length,
+          contentPreview: content.substring(0, 100),
+          hasToolCalls: toolCalls.length > 0,
+          usage
+        });
+        
+        return response;
       }
       
       throw new Error('No response from Claude Code SDK');

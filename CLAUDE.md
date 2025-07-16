@@ -6,20 +6,34 @@ CRITICAL: When working on this project, you are to be direct, and ruthlessly hon
 
 Bicamrl is an experimental concurrent interaction development environment (CIDE) that explores new paradigms for human-AI collaboration. Unlike traditional chat-based tools, Bicky structures interactions richly, allowing a "legion of agents" to learn from user interactions and collaborate amongst themselves.
 
+## Current State (2025-07-15)
+
+### Major Components Implemented
+- **InteractionStore**: Simplified from InteractionBus - handles storage and events
+- **Git Worktree Support**: Full integration allowing isolated development contexts
+- **Wake Process Architecture**: Event-driven spawning per interaction
+- **GUI with Worktree Management**: Complete UI for creating/selecting worktrees
+- **Real-time Processing Updates**: Live token counts and progress animations
+- **Tool Permission System**: Works with both mock and Claude Code providers
+
 ## Core Concepts
 
 ### Wake and Sleep Architecture
 - **Wake Agent**: Active processor that handles user queries and performs actions
+  - Spawns as separate process per interaction for isolation
+  - Runs in worktree directory when worktree context provided
+  - Supports real-time progress updates during processing
 - **Sleep Agent**: Passive observer that analyzes patterns and provides feedback to improve Wake's performance
-- **Interaction Bus**: Central message passing system where all agents can see and process messages
+- **InteractionStore**: Simplified storage + event system (replaced complex InteractionBus)
 
 ### Key Features
 - Rich interaction types beyond simple chat (queries, actions, observations, feedback)
-- Agent memory system with SQLite persistence
-- Pluggable LLM providers (Claude, OpenAI, LM Studio)
-- Tool system for file operations and external interactions
-- Session management with interaction history
+- Git worktree integration for isolated development contexts
+- Pluggable LLM providers (Claude Code, Mock for testing)
+- Tool system with worktree-aware file operations
 - Real-time updates via Server-Sent Events (SSE)
+- Processing animations with live token counts
+- Tool permission flow with UI approval/denial
 
 ## Architecture
 
@@ -29,12 +43,11 @@ bicamrl/
 │   ├── server/          # TypeScript/Bun backend server
 │   │   ├── src/
 │   │   │   ├── agents/  # Wake and Sleep agent implementations
-│   │   │   ├── api/     # REST API routes
-│   │   │   ├── core/    # Core abstractions (Agent, Session)
-│   │   │   ├── interaction/ # Rich interaction system
+│   │   │   ├── api/     # REST API routes  
+│   │   │   ├── interaction/ # Interaction types and store
 │   │   │   ├── llm/     # LLM provider abstraction
-│   │   │   ├── memory/  # Persistence layer
-│   │   │   └── tools/   # Tool registry and implementations
+│   │   │   ├── tools/   # Tool registry and implementations
+│   │   │   └── worktree/ # Git worktree management
 │   │   └── tests/       # Comprehensive test suite
 │   ├── shared/          # Shared types between server and editor
 │   └── editor/          # Rust-based editor implementation
@@ -114,10 +127,14 @@ The `Mind.toml` file controls:
 ## API Endpoints
 
 Key endpoints:
-- `POST /sessions` - Create new session
-- `POST /sessions/:id/interactions` - Send message to agents
-- `GET /sessions/:id/interactions/stream` - SSE stream for real-time updates
-- `GET /queue/status` - Monitor interaction queue
+- `POST /message` - Send message with optional worktree context
+- `GET /interactions` - Get all interactions
+- `GET /interactions/:id` - Get specific interaction
+- `POST /interactions/:id/result` - Submit Wake process result
+- `GET /stream` - SSE stream for real-time updates
+- `GET /worktrees` - List available worktrees
+- `POST /worktrees` - Create new worktree
+- `DELETE /worktrees/:id` - Remove worktree
 
 ## Important Notes
 - This is experimental software - APIs may change
@@ -170,6 +187,19 @@ When using Claude Code as the LLM provider:
 - Set `maxTurns` > 1 to allow tool use (we use 3)
 - Tool calls are extracted from SDK messages
 - Permission requests work through Bicamrl's interaction flow
+
+## Recent Fixes & Known Issues
+
+### Fixed (2025-07-15)
+- **Wake Process with Worktrees**: Wake now correctly runs in worktree directory
+- **Processing Animations**: Real-time updates with rotating symbols, elapsed time, token counts
+- **Duplicate Responses**: Prevented Wake from processing multiple times
+- **Tool Permissions**: Works correctly with Claude Code tool names
+
+### Current Architecture Notes
+- **No Sessions**: Worktree context is stored in interaction metadata, not sessions
+- **Process Per Interaction**: Each Wake interaction spawns a new process
+- **Event-Driven**: No queue management, processes spawn on interaction creation
 
 ## Development Rules
 - **BE CONCISE**: Be succinct and direct. No fluff. Be blunt. Avoid sycophancy.

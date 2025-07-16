@@ -41,6 +41,7 @@ export interface SendMessageRequest {
   content: string;
   metadata?: Record<string, any>;
   worktreeId?: string;
+  interactionId?: string; // For continuing existing conversations
 }
 
 export interface GetMessagesParams {

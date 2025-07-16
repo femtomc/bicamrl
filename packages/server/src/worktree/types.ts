@@ -1,5 +1,7 @@
 import type { Worktree } from '@bicamrl/shared';
 
+export type { Worktree };
+
 export interface WorktreeStore {
   create(worktree: Omit<Worktree, 'id' | 'createdAt'>): Promise<Worktree>;
   get(id: string): Promise<Worktree | null>;

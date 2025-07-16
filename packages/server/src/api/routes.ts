@@ -1,369 +1,276 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { InteractionStore } from '../interaction/store';
+import { MessageStore } from '../message/store';
 import { WakeProcessor } from '../agents/wake-processor';
 import { LLMService, MockLLMProvider } from '../llm/service';
 import { ClaudeCodeLLMProvider } from '../llm/providers/claude-code';
-import { Interaction, InteractionType } from '../interaction/types';
 import { loadMindConfig } from '../config/mind';
 import { WorktreeManager } from '../worktree/manager';
 import { InMemoryWorktreeStore } from '../worktree/memory-store';
-import type { SendMessageRequest } from '@bicamrl/shared';
+import { createMonitoringRoutes } from './monitoring';
+import { ConversationService } from '../services/conversation-service';
+import { WorktreeService } from '../services/worktree-service';
+import { createSSEStream } from '../utils/sse';
 
-const app = new Hono();
+/**
+ * Clean API routes with proper separation of concerns
+ * 
+ * Improvements:
+ * - Services handle business logic
+ * - Routes only handle HTTP concerns
+ * - Proper error handling
+ * - No god object pattern
+ */
 
-// Middleware
-app.use('*', cors());
-
-// Load configuration
-const mindConfig = loadMindConfig();
-
-// Initialize services
-const llmService = new LLMService(mindConfig.default_provider);
-llmService.registerProvider('mock', new MockLLMProvider());
-llmService.registerProvider('claude_code', new ClaudeCodeLLMProvider());
-
-// Initialize interaction store
-const interactionStore = new InteractionStore();
-
-// Initialize worktree manager
-const worktreeStore = new InMemoryWorktreeStore();
-const repoRoot = process.env.BICAMRL_REPO_ROOT || process.cwd();
-const worktreeManager = new WorktreeManager(repoRoot, worktreeStore);
-
-// Initialize manager
-worktreeManager.initialize()
-  .then(() => console.log('[WorktreeManager] Initialized successfully'))
-  .catch(err => console.error('[WorktreeManager] Init failed:', err));
-
-// Enable tools based on Mind.toml configuration
-const enableTools = mindConfig.agents?.enable_tools ?? false;
-console.log(`[Config] Tools enabled: ${enableTools}`);
-
-// Start the wake processor
-const wakeProcessor = new WakeProcessor(interactionStore, llmService, enableTools);
-wakeProcessor.start().catch(err => console.error('Wake processor failed:', err));
-
-// Health check
-app.get('/health', (c) => {
-  return c.json({ status: 'ok' });
-});
-
-// Send a message
-app.post('/message', async (c) => {
-  console.log('[API] Received message request');
-  const { content, metadata, worktreeId } = await c.req.json<SendMessageRequest>();
+// Initialize services (this should ideally be in a DI container)
+const initializeServices = async () => {
+  // Load configuration
+  const mindConfig = loadMindConfig();
   
-  if (!content) {
-    console.log('[API] No content provided');
-    return c.json({ error: 'No content provided' }, 400);
-  }
+  // Initialize LLM service
+  const llmService = new LLMService(mindConfig.default_provider);
+  llmService.registerProvider('mock', new MockLLMProvider());
+  llmService.registerProvider('claude_code', new ClaudeCodeLLMProvider());
   
-  // Build worktree context if worktreeId provided
-  let worktreeContext = undefined;
-  if (worktreeId) {
-    const worktree = await worktreeManager.getWorktree(worktreeId);
-    if (worktree) {
-      worktreeContext = {
-        worktreeId: worktree.id,
-        worktreePath: worktree.path
-      };
-    }
-  }
+  // Initialize stores
+  const interactionStore = new InteractionStore();
+  const messageStore = new MessageStore();
+  const worktreeStore = new InMemoryWorktreeStore();
   
-  // Check if there's an interaction waiting for permission
-  const interactions = interactionStore.getAll();
-  const waitingInteraction = interactions.find(i => 
-    i.metadata?.status === 'waiting_for_permission'
-  );
+  // Initialize worktree manager
+  const repoRoot = process.env.BICAMRL_REPO_ROOT || process.cwd();
+  const worktreeManager = new WorktreeManager(repoRoot, worktreeStore);
+  await worktreeManager.initialize();
   
-  console.log('[API] Checking for waiting interactions. Found:', interactions.length, 'total');
-  console.log('[API] Waiting interaction:', waitingInteraction?.id || 'none');
+  // Initialize services
+  const conversationService = new ConversationService(interactionStore, messageStore, worktreeManager);
+  const worktreeService = new WorktreeService(worktreeManager);
   
-  if (waitingInteraction) {
-    console.log('[API] Found interaction waiting for permission:', waitingInteraction.id);
+  // Initialize wake processor
+  const enableTools = mindConfig.agents?.enable_tools ?? false;
+  const wakeProcessor = new WakeProcessor(interactionStore, messageStore, llmService, enableTools);
+  await wakeProcessor.start();
+  
+  return {
+    interactionStore,
+    messageStore,
+    conversationService,
+    worktreeService,
+    wakeProcessor,
+    mindConfig
+  };
+};
+
+export const createApp = async (options?: { port?: number }) => {
+  const app = new Hono();
+  
+  // Middleware
+  app.use('*', cors());
+  
+  // Initialize services with optional port override
+  const port = options?.port || process.env.PORT || 3456;
+  const services = await initializeServices();
+  const { interactionStore, messageStore, conversationService, worktreeService, wakeProcessor } = services;
+  
+  // Store port for Wake processes to use
+  (wakeProcessor as any).serverPort = port;
+  
+  // Add monitoring routes
+  const monitoringRoutes = createMonitoringRoutes(wakeProcessor);
+  app.route('/monitoring', monitoringRoutes);
+  
+  // Health check
+  app.get('/health', (c) => {
+    return c.json({ status: 'ok' });
+  });
+  
+  // Conversation routes
+  app.get('/interactions', async (c) => {
+    const conversations = await conversationService.getAllConversations();
+    return c.json(conversations);
+  });
+  
+  app.get('/interactions/:id', async (c) => {
+    const id = c.req.param('id');
+    const conversation = await conversationService.getConversation(id);
     
-    // Check if this looks like a permission response
-    const lowerContent = content.toLowerCase();
-    const permissionWords = ['yes', 'no', 'approve', 'deny', 'proceed', 'go ahead', 'don\'t', 'stop'];
-    const isPermissionResponse = permissionWords.some(word => lowerContent.includes(word)) && 
-                                 content.length < 50; // Short responses are more likely permission responses
+    if (!conversation) {
+      return c.json({ error: 'Interaction not found' }, 404);
+    }
     
-    if (isPermissionResponse) {
-      console.log('[API] Detected permission response, adding to existing interaction');
-      // Add the response to the existing interaction
-      await interactionStore.addMessage(waitingInteraction.id, {
-        role: 'user',
-        content: content,
-        timestamp: new Date()
-      });
+    return c.json(conversation);
+  });
+  
+  app.post('/interactions/:id/result', async (c) => {
+    try {
+      const id = c.req.param('id');
+      const result = await c.req.json();
       
-      // Update metadata with permission response
-      const approved = lowerContent.includes('yes') || lowerContent.includes('approve');
-      await interactionStore.updateMetadata(waitingInteraction.id, {
-        permissionResponse: approved
-      });
+      await conversationService.submitAssistantResponse(
+        id, 
+        result.content || result.response || 'Processing completed',
+        result
+      );
+      return c.json({ success: true });
       
-      return c.json({ id: waitingInteraction.id, status: 'queued' });
-    } else {
-      console.log('[API] Not a permission response, creating new interaction');
-    }
-  }
-  
-  // Otherwise create a new interaction
-  console.log('[API] Creating new interaction with content:', content);
-  const interaction = Interaction.create({
-    source: 'user',
-    type: InteractionType.QUERY,
-    initialMessage: content
-  }).withMetadata({
-    ...metadata,
-    worktreeContext
-  });
-  
-  console.log('[API] Posting interaction to store');
-  const id = await interactionStore.create(interaction);
-  
-  console.log('[API] Interaction created with id:', id);
-  return c.json({ id, status: 'queued' });
-});
-
-// Get queue status
-app.get('/status', async (c) => {
-  const interactions = interactionStore.getAll();
-  let processing = 0;
-  let completed = 0;
-  let queued = 0;
-  
-  for (const interaction of interactions) {
-    switch (interaction.state.kind) {
-      case 'processing':
-      case 'waiting_permission':
-        processing++;
-        break;
-      case 'completed':
-      case 'failed':
-        completed++;
-        break;
-      case 'queued':
-        queued++;
-        break;
-    }
-  }
-  
-  return c.json({
-    queueSize: queued,
-    processing,
-    completed
-  });
-});
-
-// Get all interactions
-app.get('/interactions', async (c) => {
-  const interactions = interactionStore.getAllSerialized();
-  return c.json(interactions);
-});
-
-// Get single interaction
-app.get('/interactions/:id', async (c) => {
-  const { id } = c.req.param();
-  const interaction = interactionStore.get(id);
-  
-  if (!interaction) {
-    return c.json({ error: 'Interaction not found' }, 404);
-  }
-  
-  // Serialize for API response
-  const serialized = interactionStore.getAllSerialized().find(i => i.id === id);
-  return c.json(serialized);
-});
-
-// Respond to permission request
-app.post('/interactions/:id/permission', async (c) => {
-  const { id } = c.req.param();
-  const { approved } = await c.req.json();
-  
-  console.log(`[API] Permission response for ${id}: ${approved ? 'approved' : 'denied'}`);
-  
-  // Get the interaction
-  const interaction = interactionStore.get(id);
-  
-  if (!interaction) {
-    return c.json({ error: 'Interaction not found' }, 404);
-  }
-  
-  if (interaction.metadata?.status !== 'waiting_for_permission') {
-    return c.json({ error: 'Interaction not waiting for permission' }, 400);
-  }
-  
-  // Update the interaction with permission response
-  await interactionStore.updateMetadata(id, {
-    permissionResponse: approved
-  });
-  
-  return c.json({ success: true });
-});
-
-// Submit result for an interaction (used by Wake processes)
-app.post('/interactions/:id/result', async (c) => {
-  const { id } = c.req.param();
-  const result = await c.req.json();
-  
-  console.log(`[API] Result submission for ${id}`);
-  
-  // Get the interaction
-  const interaction = interactionStore.get(id);
-  
-  if (!interaction) {
-    return c.json({ error: 'Interaction not found' }, 404);
-  }
-  
-  // Check if this is just a status update
-  if (result.isStatusUpdate) {
-    // Only update metadata without changing completion state
-    await interactionStore.updateMetadata(id, result.metadata || {});
-    return c.json({ success: true });
-  }
-  
-  // Add assistant message if there's a response
-  if (result.response) {
-    await interactionStore.addMessage(id, {
-      role: 'assistant',
-      content: result.response,
-      timestamp: new Date(),
-      metadata: { model: result.model }
-    });
-  }
-  
-  // Update metadata
-  const metadata = {
-    ...result.metadata,
-    ...(result.usage && {
-      tokens: {
-        input: result.usage.inputTokens || 0,
-        output: result.usage.outputTokens || 0,
-        total: result.usage.totalTokens || 0
+    } catch (error: any) {
+      if (error.message === 'Interaction not found') {
+        return c.json({ error: error.message }, 404);
       }
-    }),
-    ...(result.model && { model: result.model }),
-    processingTimeMs: Date.now() - interaction.timestamp.getTime()
+      console.error('[API] Error submitting result:', error);
+      return c.json({ error: 'Failed to submit result' }, 500);
+    }
+  });
+  
+  // Message creation
+  app.post('/message', async (c) => {
+    try {
+      const request = await c.req.json();
+      const result = await conversationService.handleSendMessage(request);
+      return c.json({
+        id: result.interactionId,
+        type: result.type === 'new_conversation' ? 'query' : 'message',
+        messageId: result.messageId
+      });
+      
+    } catch (error: any) {
+      if (error.message === 'Content is required') {
+        return c.json({ error: error.message }, 400);
+      }
+      console.error('[API] Error creating message:', error);
+      return c.json({ error: 'Failed to create message' }, 500);
+    }
+  });
+  
+  // Worktree routes
+  app.get('/worktrees', async (c) => {
+    try {
+      const worktrees = await worktreeService.listWorktrees();
+      return c.json(worktrees);
+    } catch (error) {
+      return c.json({ error: 'Failed to list worktrees' }, 500);
+    }
+  });
+  
+  app.post('/worktrees', async (c) => {
+    try {
+      const request = await c.req.json();
+      const worktree = await worktreeService.createWorktree(request);
+      return c.json(worktree);
+      
+    } catch (error: any) {
+      if (error.message === 'Branch name is required') {
+        return c.json({ error: error.message }, 400);
+      }
+      return c.json({ error: error.message || 'Failed to create worktree' }, 500);
+    }
+  });
+  
+  // Interaction status update (for progress reporting)
+  app.put('/interactions/:id/status', async (c) => {
+    try {
+      const interactionId = c.req.param('id');
+      const metadata = await c.req.json();
+      
+      await interactionStore.updateMetadata(interactionId, metadata);
+      return c.json({ success: true });
+      
+    } catch (error: any) {
+      console.error('[API] Error updating interaction status:', error);
+      return c.json({ error: 'Failed to update status' }, 500);
+    }
+  });
+  
+  // Message status update
+  app.put('/messages/:id/status', async (c) => {
+    try {
+      const messageId = c.req.param('id');
+      const { status } = await c.req.json();
+      
+      await messageStore.updateMessageStatus(messageId, status);
+      return c.json({ success: true });
+      
+    } catch (error: any) {
+      console.error('[API] Error updating message status:', error);
+      return c.json({ error: 'Failed to update message status' }, 500);
+    }
+  });
+  
+  // Permission request
+  app.post('/interactions/:id/permission', async (c) => {
+    try {
+      const interactionId = c.req.param('id');
+      const { toolName, description, requestId } = await c.req.json();
+      
+      const messageId = await conversationService.createPermissionRequest(
+        interactionId,
+        toolName,
+        description,
+        requestId
+      );
+      
+      return c.json({ messageId });
+      
+    } catch (error: any) {
+      console.error('[API] Error creating permission request:', error);
+      return c.json({ error: 'Failed to create permission request' }, 500);
+    }
+  });
+  
+  // Permission response
+  app.post('/interactions/:id/permission/response', async (c) => {
+    try {
+      const interactionId = c.req.param('id');
+      const { approved } = await c.req.json();
+      
+      await conversationService.handlePermissionResponse(interactionId, approved);
+      return c.json({ success: true });
+      
+    } catch (error: any) {
+      console.error('[API] Error handling permission response:', error);
+      return c.json({ error: 'Failed to handle permission response' }, 500);
+    }
+  });
+  
+  // SSE endpoint
+  app.get('/stream', (c) => {
+    const stream = createSSEStream(interactionStore, messageStore);
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
+    });
+  });
+  
+  // Legacy endpoint for compatibility
+  app.get('/interactions/stream', (c) => {
+    return c.redirect('/stream');
+  });
+  
+  // Graceful shutdown
+  const shutdown = async () => {
+    console.log('\nShutting down gracefully...');
+    await wakeProcessor.stop();
+    process.exit(0);
   };
   
-  // Clear currentAction when completing
-  if (result.metadata?.status === 'completed' || result.response) {
-    delete metadata.currentAction;
-  }
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
   
-  await interactionStore.updateMetadata(id, metadata);
+  // Attach services for testing
+  (app as any).services = {
+    interactionStore,
+    messageStore,
+    wakeProcessor,
+    conversationService,
+    worktreeService
+  };
   
-  // Update state based on status
-  if (result.metadata?.status === 'waiting_for_permission') {
-    // Update to waiting_permission state
-    await interactionStore.update(id, interaction =>
-      interaction.withState({
-        kind: 'waiting_permission',
-        tool: metadata.pendingToolCall?.name || '',
-        requestId: metadata.pendingToolCall?.id || '',
-        processor: 'wake'
-      })
-    );
-  } else if (result.metadata?.status !== 'waiting_for_permission' && !result.isStatusUpdate) {
-    await interactionStore.complete(id, result);
-  }
-  
-  return c.json({ success: true });
-});
+  return app;
+};
 
-// Close an interaction
-app.post('/interactions/:id/close', async (c) => {
-  const { id } = c.req.param();
-  const { feedback } = await c.req.json();
-  
-  console.log(`[API] Closing interaction ${id}`);
-  
-  // Mark as completed with feedback
-  await interactionStore.complete(id, { feedback });
-  
-  return c.json({ success: true });
-});
-
-// Worktree endpoints
-app.get('/worktrees', async (c) => {
-  console.log('[API] GET /worktrees request');
-  try {
-    const worktrees = await worktreeManager.listWorktrees();
-    console.log('[API] Found worktrees:', worktrees.length);
-    return c.json(worktrees);
-  } catch (error: any) {
-    console.error('[API] Error listing worktrees:', error);
-    return c.json({ error: error.message }, 500);
-  }
-});
-
-app.post('/worktrees', async (c) => {
-  console.log('[API] POST /worktrees request received');
-  const { branch, baseBranch, path } = await c.req.json();
-  console.log('[API] Creating worktree:', { branch, baseBranch, path });
-  
-  try {
-    const worktree = await worktreeManager.createWorktree(branch, baseBranch, path);
-    console.log('[API] Worktree created successfully:', worktree);
-    return c.json(worktree);
-  } catch (error: any) {
-    console.error('[API] Error creating worktree:', error);
-    return c.json({ error: error.message }, 400);
-  }
-});
-
-app.delete('/worktrees/:id', async (c) => {
-  const { id } = c.req.param();
-  
-  try {
-    await worktreeManager.deleteWorktree(id);
-    return c.json({ success: true });
-  } catch (error: any) {
-    return c.json({ error: error.message }, 400);
-  }
-});
-
-// SSE endpoint for real-time updates
-app.get('/stream', async (c) => {
-  const stream = new ReadableStream({
-    start(controller) {
-      // Send initial connection
-      controller.enqueue(`data: ${JSON.stringify({ connected: true })}\n\n`);
-      
-      // Subscribe to events
-      const unsubscribe = interactionStore.subscribe((event) => {
-        controller.enqueue(`data: ${JSON.stringify(event)}\n\n`);
-      });
-      
-      // Send keep-alive every 30 seconds
-      const keepAliveInterval = setInterval(() => {
-        try {
-          controller.enqueue(`:keepalive\n\n`);
-        } catch (e) {
-          // Stream might be closed
-          clearInterval(keepAliveInterval);
-        }
-      }, 30000);
-      
-      // Handle client disconnect
-      c.req.raw.signal.addEventListener('abort', () => {
-        clearInterval(keepAliveInterval);
-        unsubscribe();
-        controller.close();
-      });
-    }
-  });
-  
-  return new Response(stream, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive'
-    }
-  });
-});
-
-export default app;
+// Export default app for backwards compatibility
+export default createApp();

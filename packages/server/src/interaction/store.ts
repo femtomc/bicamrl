@@ -1,22 +1,21 @@
-import { Interaction, InteractionType } from './types';
 import { EventEmitter } from 'events';
+import { Interaction } from './types';
 
 export interface InteractionEvent {
-  type: 'interaction_created' | 'interaction_updated' | 'interaction_completed';
+  type: 'interaction:created' | 'interaction:updated';
   timestamp: Date;
   data: {
-    interactionId: string;
     interaction: Interaction;
   };
 }
 
 /**
- * InteractionStore - Simple storage for interactions with event emission
+ * InteractionStore V2 - Simplified storage for interactions
  * 
- * This replaces the complex InteractionBus with a simpler design:
- * - Store interactions by ID
- * - Emit events when interactions change
- * - No queue management (Wake processes are spawned directly)
+ * Key changes:
+ * - No queue management (interactions are just stored)
+ * - No state tracking (that's in messages now)
+ * - Focus on being a simple key-value store
  */
 export class InteractionStore extends EventEmitter {
   private interactions: Map<string, Interaction> = new Map();
@@ -28,12 +27,9 @@ export class InteractionStore extends EventEmitter {
     this.interactions.set(interaction.id, interaction);
     
     this.emit('event', {
-      type: 'interaction_created',
+      type: 'interaction:created',
       timestamp: new Date(),
-      data: {
-        interactionId: interaction.id,
-        interaction
-      }
+      data: { interaction }
     });
 
     return interaction.id;
@@ -66,22 +62,10 @@ export class InteractionStore extends EventEmitter {
     this.interactions.set(id, updated);
 
     this.emit('event', {
-      type: 'interaction_updated',
+      type: 'interaction:updated',
       timestamp: new Date(),
-      data: {
-        interactionId: id,
-        interaction: updated
-      }
+      data: { interaction: updated }
     });
-  }
-
-  /**
-   * Add a message to an interaction
-   */
-  async addMessage(id: string, message: any): Promise<void> {
-    await this.update(id, interaction => 
-      interaction.withMessage(message)
-    );
   }
 
   /**
@@ -97,28 +81,17 @@ export class InteractionStore extends EventEmitter {
   }
 
   /**
-   * Mark interaction as completed
+   * Get interactions by source
    */
-  async complete(id: string, result: any): Promise<void> {
-    await this.update(id, interaction =>
-      interaction.withState({
-        kind: 'completed',
-        result,
-        completedAt: new Date()
-      })
-    );
+  getBySource(source: string): Interaction[] {
+    return this.getAll().filter(i => i.source === source);
+  }
 
-    const interaction = this.get(id);
-    if (interaction) {
-      this.emit('event', {
-        type: 'interaction_completed',
-        timestamp: new Date(),
-        data: {
-          interactionId: id,
-          interaction
-        }
-      });
-    }
+  /**
+   * Get active interactions (those with wake processes)
+   */
+  getActive(): Interaction[] {
+    return this.getAll().filter(i => i.hasActiveWake);
   }
 
   /**
@@ -132,31 +105,9 @@ export class InteractionStore extends EventEmitter {
   }
 
   /**
-   * Get all interactions in a serializable format for API responses
+   * Get all interactions in a serializable format
    */
   getAllSerialized(): any[] {
-    return Array.from(this.interactions.values()).map(interaction => {
-      let status = 'unknown';
-      switch (interaction.state.kind) {
-        case 'queued': status = 'queued'; break;
-        case 'processing': status = 'processing'; break;
-        case 'waiting_permission': status = 'waiting_for_permission'; break;
-        case 'completed': status = 'completed'; break;
-        case 'failed': status = 'failed'; break;
-      }
-      
-      return {
-        id: interaction.id,
-        source: interaction.source,
-        interaction_type: interaction.type,
-        content: interaction.content,
-        timestamp: interaction.timestamp.toISOString(),
-        status,
-        metadata: interaction.metadata,
-        permission_request: interaction.state.kind === 'waiting_permission' && interaction.metadata?.toolPermission 
-          ? interaction.metadata.toolPermission 
-          : undefined
-      };
-    });
+    return this.getAll().map(i => i.toJSON());
   }
 }

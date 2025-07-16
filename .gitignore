@@ -25,7 +25,8 @@ MANIFEST
 *.spec
 pip-log.txt
 pip-delete-this-directory.txt
-packages/server/worktrees/feature/test-worktree
+# Git worktrees
+packages/server/worktrees/
 
 # Virtual environments
 .env

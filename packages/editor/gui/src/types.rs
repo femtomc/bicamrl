@@ -56,6 +56,7 @@ pub struct QueueStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SendMessageResponse {
     pub id: String,
+    #[serde(rename = "type")]
     pub status: String,
 }
 

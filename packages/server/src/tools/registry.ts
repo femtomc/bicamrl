@@ -1,7 +1,16 @@
 import type { LLMTool } from '../llm/service';
 import type { WorktreeContext } from '@bicamrl/shared';
-import type { ToolPermissionRequest, ToolPermissionResponse } from '../interaction/types';
 import { WorktreeAwareTool } from './worktree-aware-tool';
+
+export interface ToolPermissionRequest {
+  toolName: string;
+  description: string;
+  requestId?: string;
+}
+
+export interface ToolPermissionResponse {
+  approved: boolean;
+}
 
 export type PermissionPromptFn = (request: ToolPermissionRequest) => Promise<ToolPermissionResponse>;
 
@@ -39,6 +48,10 @@ export class ToolRegistry {
   
   getTool(name: string): LLMTool | undefined {
     return this.tools.get(name);
+  }
+  
+  getAllTools(): LLMTool[] {
+    return Array.from(this.tools.values());
   }
   
   async execute(

@@ -1,7 +1,13 @@
-import { test, expect, describe } from "bun:test";
-import app from "../../src/api/routes";
+import { test, expect, describe, beforeAll } from "bun:test";
+import createApp from "../../src/api/routes";
 
 describe("API Routes", () => {
+  let app: any;
+  
+  beforeAll(async () => {
+    app = await createApp;
+  });
+
   test("GET /health returns ok", async () => {
     const res = await app.request("/health");
     const json = await res.json();
@@ -21,7 +27,7 @@ describe("API Routes", () => {
     
     expect(res.status).toBe(200);
     expect(json.id).toBeDefined();
-    expect(json.status).toBe("queued");
+    expect(json.type).toBe("query");
   });
 
   test("POST /message requires content", async () => {
@@ -34,17 +40,13 @@ describe("API Routes", () => {
     const json = await res.json();
     
     expect(res.status).toBe(400);
-    expect(json.error).toBe("No content provided");
+    expect(json.error).toBe("Content is required");
   });
 
-  test("GET /status returns queue stats", async () => {
+  test("GET /status returns 404", async () => {
     const res = await app.request("/status");
-    const json = await res.json();
     
-    expect(res.status).toBe(200);
-    expect(json).toHaveProperty("queueSize");
-    expect(json).toHaveProperty("processing");
-    expect(json).toHaveProperty("completed");
+    expect(res.status).toBe(404);
   });
 
   test("GET /interactions returns all interactions", async () => {
