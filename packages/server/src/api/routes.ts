@@ -5,6 +5,7 @@ import { MessageStore } from '../message/store';
 import { WakeProcessor } from '../agents/wake-processor';
 import { LLMService, MockLLMProvider } from '../llm/service';
 import { ClaudeCodeLLMProvider } from '../llm/providers/claude-code';
+import { LMStudioLLMProvider } from '../llm/providers/lmstudio';
 import { loadMindConfig } from '../config/mind';
 import { WorktreeManager } from '../worktree/manager';
 import { InMemoryWorktreeStore } from '../worktree/memory-store';
@@ -32,6 +33,10 @@ const initializeServices = async () => {
   const llmService = new LLMService(mindConfig.default_provider);
   llmService.registerProvider('mock', new MockLLMProvider());
   llmService.registerProvider('claude_code', new ClaudeCodeLLMProvider());
+  llmService.registerProvider('lmstudio', new LMStudioLLMProvider({
+    baseURL: mindConfig.llm_providers?.lmstudio?.api_base,
+    model: mindConfig.llm_providers?.lmstudio?.model,
+  }));
   
   // Initialize stores
   const interactionStore = new InteractionStore();

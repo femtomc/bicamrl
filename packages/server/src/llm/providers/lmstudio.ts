@@ -1,4 +1,4 @@
-import type { LLMProvider, GenerateOptions } from '../service';
+import type { LLMProvider, GenerateOptions, LLMResponse } from '../service';
 
 export interface LMStudioConfig {
   baseURL?: string;
@@ -184,6 +184,52 @@ export class LMStudioLLMProvider implements LLMProvider {
     // LM Studio typically doesn't provide embeddings
     // You would need a separate embedding model or service
     throw new Error('LM Studio does not support embeddings. Use OpenAI or another embedding provider.');
+  }
+  
+  async completeWithTools(messages: any[], tools: any[], options?: GenerateOptions): Promise<LLMResponse> {
+    // LM Studio doesn't support function calling/tools
+    // Just do a regular completion
+    const lmMessages: LMStudioMessage[] = messages.map(msg => ({
+      role: msg.role,
+      content: msg.content
+    }));
+    
+    const request: LMStudioRequest = {
+      model: options?.model || this.defaultModel,
+      messages: lmMessages,
+      max_tokens: options?.maxTokens || this.defaultMaxTokens,
+      temperature: options?.temperature ?? 0.7,
+      stop: options?.stopSequences,
+      stream: false
+    };
+    
+    const response = await fetch(`${this.baseURL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(request)
+    });
+    
+    if (!response.ok) {
+      throw new Error(`LM Studio API error: ${response.status} ${response.statusText}`);
+    }
+    
+    const data = await response.json() as LMStudioResponse;
+    
+    if (!data.choices || data.choices.length === 0) {
+      throw new Error('No choices in LM Studio response');
+    }
+    
+    return {
+      content: data.choices[0]?.message.content || '',
+      model: data.model || this.defaultModel,
+      usage: data.usage ? {
+        inputTokens: data.usage.prompt_tokens || 0,
+        outputTokens: data.usage.completion_tokens || 0,
+        totalTokens: data.usage.total_tokens || 0,
+      } : undefined,
+    };
   }
   
   async checkHealth(): Promise<boolean> {

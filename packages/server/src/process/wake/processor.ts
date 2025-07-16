@@ -6,6 +6,7 @@
 import { loadMindConfig } from '../../config/mind';
 import { LLMService, MockLLMProvider } from '../../llm/service';
 import { ClaudeCodeLLMProvider } from '../../llm/providers/claude-code';
+import { LMStudioLLMProvider } from '../../llm/providers/lmstudio';
 import { WakeApiClient } from './api-client';
 import { SSEHandler } from './sse-handler';
 import { ProgressReporter } from './progress-reporter';
@@ -71,6 +72,10 @@ export class WakeProcessor {
     this.llmService = new LLMService(mindConfig.default_provider);
     this.llmService.registerProvider('mock', new MockLLMProvider());
     this.llmService.registerProvider('claude_code', new ClaudeCodeLLMProvider());
+    this.llmService.registerProvider('lmstudio', new LMStudioLLMProvider({
+      baseURL: mindConfig.llm_providers?.lmstudio?.api_base,
+      model: mindConfig.llm_providers?.lmstudio?.model,
+    }));
     
     // Claude Code handles its own tools and permissions
     console.log('[WakeProcessor] Using Claude Code with its built-in tools');
