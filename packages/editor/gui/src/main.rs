@@ -108,6 +108,210 @@ impl BickyApp {
         }
         None
     }
+    
+    fn find_conversation_by_interaction_id(&self, interaction_id: &str) -> Option<usize> {
+        for (idx, conv) in self.state.conversations.iter().enumerate() {
+            if conv.id == interaction_id {
+                return Some(idx);
+            }
+        }
+        None
+    }
+    
+    // Convert server's conversation format to GUI's format
+    fn convert_server_conversation(&self, conversation_data: &serde_json::Value) -> Option<(String, Vec<types::LegacyMessage>)> {
+        let interaction = conversation_data.get("interaction")?;
+        let messages = conversation_data.get("messages")?.as_array()?;
+        let interaction_id = interaction.get("id")?.as_str()?.to_string();
+        
+        let mut gui_messages = Vec::new();
+        let mut i = 0;
+        
+        while i < messages.len() {
+            let msg = &messages[i];
+            let role = msg.get("role")?.as_str()?;
+            
+            if role == "user" {
+                let user_content = msg.get("content")?.as_str()?.to_string();
+                let msg_id = msg.get("id")?.as_str()?.to_string();
+                let status_str = msg.get("status")?.as_str()?;
+                
+                // Look for the next assistant message as the response
+                let mut response = None;
+                let mut metadata = None;
+                let mut status = match status_str {
+                    "pending" => types::MessageStatus::Pending,
+                    "processing" => types::MessageStatus::Processing,
+                    "completed" => types::MessageStatus::Completed,
+                    "error" => types::MessageStatus::Error,
+                    _ => types::MessageStatus::Pending,
+                };
+                
+                // Check if there's an assistant message after this user message
+                if i + 1 < messages.len() {
+                    let next_msg = &messages[i + 1];
+                    if next_msg.get("role")?.as_str()? == "assistant" {
+                        response = next_msg.get("content").and_then(|c| c.as_str()).map(|s| s.to_string());
+                        
+                        // Extract metadata from assistant message
+                        if let Some(meta) = next_msg.get("metadata") {
+                            metadata = self.extract_metadata(meta);
+                        }
+                        
+                        // Update status based on assistant message
+                        if let Some(assistant_status) = next_msg.get("status").and_then(|s| s.as_str()) {
+                            if assistant_status == "completed" {
+                                status = types::MessageStatus::Completed;
+                            }
+                        }
+                        
+                        i += 1; // Skip the assistant message since we've processed it
+                    }
+                }
+                
+                // Check for current processing metadata in interaction
+                if status == types::MessageStatus::Processing {
+                    if let Some(interaction_meta) = interaction.get("metadata") {
+                        println!("[GUI] Interaction metadata: {:?}", interaction_meta);
+                        if let Some(current_action) = interaction_meta.get("currentAction").and_then(|a| a.as_str()) {
+                            println!("[GUI] Found currentAction: {}", current_action);
+                            if metadata.is_none() {
+                                metadata = Some(types::InteractionMetadata {
+                                    tokens: None,
+                                    model: None,
+                                    processing_time_ms: None,
+                                    tools_used: None,
+                                    current_action: Some(current_action.to_string()),
+                                    process_id: None,
+                                    status: None,
+                                    worktree_context: None,
+                                    tags: None,
+                                });
+                            } else if let Some(meta) = &mut metadata {
+                                meta.current_action = Some(current_action.to_string());
+                            }
+                        }
+                    }
+                }
+                
+                // Check for pending tool permission in interaction metadata
+                let mut pending_tool_permission = None;
+                if let Some(interaction_meta) = interaction.get("metadata") {
+                    if let Some(permission_data) = interaction_meta.get("pendingToolPermission") {
+                        if let Ok(permission) = serde_json::from_value::<types::ToolPermissionRequest>(permission_data.clone()) {
+                            pending_tool_permission = Some(permission);
+                            status = types::MessageStatus::WaitingForPermission;
+                        }
+                    }
+                }
+                
+                gui_messages.push(types::LegacyMessage {
+                    id: msg_id,
+                    content: user_content,
+                    response,
+                    status,
+                    metadata,
+                    pending_tool_permission,
+                });
+            }
+            
+            i += 1;
+        }
+        
+        Some((interaction_id, gui_messages))
+    }
+    
+    fn extract_metadata(&self, meta: &serde_json::Value) -> Option<types::InteractionMetadata> {
+        let meta_obj = meta.as_object()?;
+        
+        let mut metadata = types::InteractionMetadata {
+            tokens: None,
+            model: None,
+            processing_time_ms: None,
+            tools_used: None,
+            current_action: None,
+            process_id: None,
+            status: None,
+            worktree_context: None,
+            tags: None,
+        };
+        
+        // Extract token usage
+        if let Some(usage) = meta_obj.get("usage").and_then(|u| u.as_object()) {
+            if let (Some(input), Some(output), Some(total)) = (
+                usage.get("inputTokens").and_then(|v| v.as_u64()),
+                usage.get("outputTokens").and_then(|v| v.as_u64()),
+                usage.get("totalTokens").and_then(|v| v.as_u64())
+            ) {
+                metadata.tokens = Some(types::TokenUsage {
+                    input: input as u32,
+                    output: output as u32,
+                    total: total as u32,
+                });
+            }
+        }
+        
+        // Extract model
+        if let Some(model) = meta_obj.get("model").and_then(|v| v.as_str()) {
+            metadata.model = Some(model.to_string());
+        }
+        
+        // Extract processing time
+        if let Some(time) = meta_obj.get("processingTimeMs").and_then(|v| v.as_u64()) {
+            metadata.processing_time_ms = Some(time);
+        }
+        
+        // Extract tools used
+        if let Some(tools) = meta_obj.get("toolsUsed").and_then(|v| v.as_array()) {
+            let tool_names: Vec<String> = tools.iter()
+                .filter_map(|t| t.as_str().map(|s| s.to_string()))
+                .collect();
+            if !tool_names.is_empty() {
+                metadata.tools_used = Some(tool_names);
+            }
+        }
+        
+        // Extract current action
+        if let Some(action) = meta_obj.get("currentAction").and_then(|v| v.as_str()) {
+            metadata.current_action = Some(action.to_string());
+        }
+        
+        // Extract process ID
+        if let Some(pid) = meta_obj.get("processId").and_then(|v| v.as_str()) {
+            metadata.process_id = Some(pid.to_string());
+        }
+        
+        // Extract status
+        if let Some(status) = meta_obj.get("status").and_then(|v| v.as_str()) {
+            metadata.status = Some(status.to_string());
+        }
+        
+        // Extract worktree context
+        if let Some(context) = meta_obj.get("worktreeContext").and_then(|v| v.as_object()) {
+            if let (Some(id), Some(path)) = (
+                context.get("id").and_then(|v| v.as_str()),
+                context.get("path").and_then(|v| v.as_str())
+            ) {
+                metadata.worktree_context = Some(types::WorktreeContext {
+                    id: id.to_string(),
+                    path: path.to_string(),
+                    branch: context.get("branch").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                });
+            }
+        }
+        
+        // Extract tags
+        if let Some(tags) = meta_obj.get("tags").and_then(|v| v.as_array()) {
+            let tag_names: Vec<String> = tags.iter()
+                .filter_map(|t| t.as_str().map(|s| s.to_string()))
+                .collect();
+            if !tag_names.is_empty() {
+                metadata.tags = Some(tag_names);
+            }
+        }
+        
+        Some(metadata)
+    }
 
     fn handle_sse_event(&mut self, event: SSEEventData) {
         match event {
@@ -115,173 +319,45 @@ impl BickyApp {
                 println!("[GUI] SSE connected");
             }
             SSEEventData::InteractionUpdate { id } => {
-                // Check if we already have this interaction cached
-                let needs_fetch = if let Some(cached) = self.interaction_cache.get(&id) {
-                    // Check if status changed (main reason for updates)
-                    // Status is in state.kind
-                    let status = cached.get("state")
-                        .and_then(|s| s.get("kind"))
-                        .and_then(|v| v.as_str());
-                    status != Some("completed")
-                } else {
-                    true
-                };
+                let rt = self.runtime.get_or_insert_with(|| {
+                    tokio::runtime::Runtime::new().unwrap()
+                });
                 
-                if needs_fetch {
-                    let rt = self.runtime.get_or_insert_with(|| {
-                        tokio::runtime::Runtime::new().unwrap()
-                    });
-                    
-                    let api = self.api_client.clone();
-                    let id_clone = id.clone();
-                    // Fetch only the specific interaction
-                    match rt.block_on(async move { api.get_interaction(&id_clone).await }) {
-                        Ok(interaction) => {
-                            // Update cache with this interaction
-                            self.interaction_cache.insert(id.clone(), interaction.clone());
-                            
-                            // Process the interaction
-                            let interaction = &interaction;
-                            // Status is in state.kind, not top-level status
-                            let status = interaction.get("state")
-                                .and_then(|s| s.get("kind"))
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("unknown");
-                            
-                            // Find which conversation this interaction belongs to
-                            if let Some(conv_idx) = self.find_conversation_by_message_id(&id) {
-                                match status {
-                                    "processing" => {
-                                        // Extract metadata during processing
-                                        let mut current_action = None;
-                                        let mut tokens = None;
-                                        if let Some(meta) = interaction.get("metadata").and_then(|v| v.as_object()) {
-                                            current_action = meta.get("currentAction").and_then(|v| v.as_str()).map(|s| s.to_string());
-                                            
-                                            // Extract tokens if available
-                                            if let Some(tokens_obj) = meta.get("tokens").and_then(|v| v.as_object()) {
-                                                if let (Some(input), Some(output), Some(total)) = (
-                                                    tokens_obj.get("input").and_then(|v| v.as_u64()),
-                                                    tokens_obj.get("output").and_then(|v| v.as_u64()),
-                                                    tokens_obj.get("total").and_then(|v| v.as_u64())
-                                                ) {
-                                                    tokens = Some(types::TokenUsage {
-                                                        input: input as u32,
-                                                        output: output as u32,
-                                                        total: total as u32,
-                                                    });
-                                                }
-                                            }
-                                        }
-                                        
-                                        // Update the message directly with metadata
-                                        if let Some(conv) = self.state.conversations.get_mut(conv_idx) {
-                                            if let Some(msg) = conv.messages.iter_mut().find(|m| m.id == id) {
-                                                // Set status to processing if not already
-                                                if msg.status != MessageStatus::Processing {
-                                                    msg.status = MessageStatus::Processing;
-                                                }
-                                                
-                                                // Update or create metadata
-                                                if let Some(action) = current_action {
-                                                    if msg.metadata.is_none() {
-                                                        msg.metadata = Some(types::InteractionMetadata {
-                                                            tokens: tokens,
-                                                            model: None,
-                                                            processing_time_ms: None,
-                                                            current_action: Some(action),
-                                                        });
-                                                    } else if let Some(metadata) = &mut msg.metadata {
-                                                        metadata.current_action = Some(action);
-                                                        if tokens.is_some() {
-                                                            metadata.tokens = tokens;
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                    "waiting_for_permission" => {
-                                        // Extract the tool permission request from top level
-                                        if let Some(perm_req) = interaction.get("permission_request") {
-                                            // Parse the permission request
-                                            if let Ok(permission_request) = serde_json::from_value::<types::ToolPermissionRequest>(perm_req.clone()) {
-                                                update(&mut self.state, Action::MessageWaitingForPermission {
-                                                    conversation_idx: conv_idx,
-                                                    id: id.to_string(),
-                                                    permission_request,
-                                                });
-                                            }
-                                        }
-                                    }
-                                    "completed" => {
-                                        
-                                        // Extract metadata from the interaction
-                                        let mut metadata = None;
-                                        if let Some(meta_obj) = interaction.get("metadata").and_then(|v| v.as_object()) {
-                                            let mut interaction_metadata = types::InteractionMetadata {
-                                                tokens: None,
-                                                model: None,
-                                                processing_time_ms: None,
-                                                current_action: None,
-                                            };
-                                            
-                                            // Extract token usage
-                                            if let Some(tokens_obj) = meta_obj.get("tokens").and_then(|v| v.as_object()) {
-                                                if let (Some(input), Some(output), Some(total)) = (
-                                                    tokens_obj.get("input").and_then(|v| v.as_u64()),
-                                                    tokens_obj.get("output").and_then(|v| v.as_u64()),
-                                                    tokens_obj.get("total").and_then(|v| v.as_u64())
-                                                ) {
-                                                    interaction_metadata.tokens = Some(types::TokenUsage {
-                                                        input: input as u32,
-                                                        output: output as u32,
-                                                        total: total as u32,
-                                                    });
-                                                }
-                                            }
-                                            
-                                            
-                                            // Extract model
-                                            if let Some(model) = meta_obj.get("model").and_then(|v| v.as_str()) {
-                                                interaction_metadata.model = Some(model.to_string());
-                                            }
-                                            
-                                            // Extract processing time
-                                            if let Some(time_ms) = meta_obj.get("processingTimeMs").and_then(|v| v.as_u64()) {
-                                                interaction_metadata.processing_time_ms = Some(time_ms);
-                                            }
-                                            
-                                            metadata = Some(interaction_metadata);
-                                            println!("[GUI] Extracted metadata: {:?}", metadata);
-                                        }
-                                        
-                                        // Check if there's a response in the content
-                                        if let Some(content) = interaction.get("content").and_then(|v| v.as_array()) {
-                                            if let Some(last_msg) = content.last() {
-                                                if let Some(role) = last_msg.get("role").and_then(|v| v.as_str()) {
-                                                    if role == "assistant" {
-                                                        if let Some(response) = last_msg.get("content").and_then(|v| v.as_str()) {
-                                                                            update(&mut self.state, Action::MessageCompleted {
-                                                                conversation_idx: conv_idx,
-                                                                id: id.to_string(),
-                                                                response: Some(response.to_string()),
-                                                                error: None,
-                                                                metadata,
-                                                            });
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                    _ => {}
+                let api = self.api_client.clone();
+                let id_clone = id.clone();
+                
+                // Small delay to let server finish updating metadata
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                
+                // Fetch the conversation
+                match rt.block_on(async move { api.get_interaction(&id_clone).await }) {
+                    Ok(conversation_data) => {
+                        // Update cache
+                        self.interaction_cache.insert(id.clone(), conversation_data.clone());
+                        
+                        // Convert to GUI format
+                        if let Some((interaction_id, new_messages)) = self.convert_server_conversation(&conversation_data) {
+                            // Find or create conversation
+                            if let Some(idx) = self.find_conversation_by_interaction_id(&interaction_id) {
+                                // Update existing conversation
+                                if let Some(conv) = self.state.conversations.get_mut(idx) {
+                                    // Update messages
+                                    conv.messages = new_messages;
                                 }
+                            } else {
+                                // Create new conversation
+                                let title = state::generate_ubuntu_style_name();
+                                let conversation = state::Conversation {
+                                    id: interaction_id.clone(),
+                                    title,
+                                    messages: new_messages,
+                                };
+                                self.state.conversations.push(conversation);
                             }
                         }
-                        Err(e) => {
-                            eprintln!("[GUI] Failed to fetch interaction {}: {}", id, e);
-                        }
+                    }
+                    Err(e) => {
+                        eprintln!("[GUI] Failed to fetch interaction {}: {}", id, e);
                     }
                 }
             }
@@ -300,15 +376,35 @@ impl BickyApp {
             
             Message::SendMessage => {
                 if !self.state.input.is_empty() {
-                    if let Some(_conv_idx) = self.state.active_conversation {
+                    if let Some(conv_idx) = self.state.active_conversation {
                         let content = self.state.input.clone();
                         update(&mut self.state, Action::SendMessage);
                         
-                        // Build request with optional worktree
+                        // Get the interaction ID from the active conversation if it exists
+                        let interaction_id = self.state.conversations.get(conv_idx)
+                            .and_then(|conv| {
+                                // Check if any message has been successfully sent (not pending)
+                                let has_sent_message = conv.messages.iter().any(|m| 
+                                    m.status != types::MessageStatus::Pending
+                                );
+                                
+                                if has_sent_message {
+                                    // We have a server-synced conversation
+                                    println!("[GUI] Sending message to existing interaction: {}", conv.id);
+                                    Some(conv.id.clone())
+                                } else {
+                                    // First message or all messages still pending
+                                    println!("[GUI] First message or pending, creating new interaction");
+                                    None
+                                }
+                            });
+                        
+                        // Build request with optional worktree and interaction ID
                         let request = SendMessageRequest {
                             content,
                             metadata: None,
                             worktree_id: self.state.current_worktree.as_ref().map(|w| w.id.clone()),
+                            interaction_id,
                         };
                         
                         // Send message asynchronously
@@ -328,14 +424,25 @@ impl BickyApp {
             Message::MessageSent(result) => {
                 match result {
                     Ok(resp) => {
+                        println!("[GUI] Message sent successfully, interaction ID: {}", resp.id);
+                        // The resp.id is now the interaction ID, not a message ID
+                        // Update the conversation's ID to match the server's interaction ID
                         if let Some(conv_idx) = self.state.active_conversation {
-                            update(&mut self.state, Action::MessageSent { 
-                                conversation_idx: conv_idx, 
-                                id: resp.id 
-                            });
+                            if let Some(conv) = self.state.conversations.get_mut(conv_idx) {
+                                let old_id = conv.id.clone();
+                                conv.id = resp.id.clone();
+                                println!("[GUI] Updated conversation ID from {} to {}", old_id, resp.id);
+                                // Update the last message's status to processing
+                                if let Some(last_msg) = conv.messages.last_mut() {
+                                    last_msg.status = types::MessageStatus::Processing;
+                                }
+                            }
                         }
                     }
-                    Err(err) => update(&mut self.state, Action::Error(err)),
+                    Err(err) => {
+                        eprintln!("[GUI] Failed to send message: {}", err);
+                        update(&mut self.state, Action::Error(err));
+                    }
                 }
                 Command::none()
             }
@@ -391,14 +498,15 @@ impl BickyApp {
             }
             
             Message::ApproveToolUse => {
-                // Find the message waiting for permission
+                // Find the conversation with a message waiting for permission
                 if let Some(conv_idx) = self.state.active_conversation {
                     if let Some(conv) = self.state.conversations.get(conv_idx) {
-                        if let Some(msg) = conv.messages.iter().find(|m| m.status == MessageStatus::WaitingForPermission) {
-                            let id = msg.id.clone();
+                        if let Some(_msg) = conv.messages.iter().find(|m| m.status == MessageStatus::WaitingForPermission) {
+                            // Use the conversation ID which is the interaction ID
+                            let interaction_id = conv.id.clone();
                             let api = self.api_client.clone();
                             return Command::perform(
-                                async move { api.respond_to_permission(&id, true).await },
+                                async move { api.respond_to_permission(&interaction_id, true).await },
                                 Message::PermissionResponseSent
                             );
                         }
@@ -408,14 +516,15 @@ impl BickyApp {
             }
             
             Message::DenyToolUse => {
-                // Find the message waiting for permission
+                // Find the conversation with a message waiting for permission
                 if let Some(conv_idx) = self.state.active_conversation {
                     if let Some(conv) = self.state.conversations.get(conv_idx) {
-                        if let Some(msg) = conv.messages.iter().find(|m| m.status == MessageStatus::WaitingForPermission) {
-                            let id = msg.id.clone();
+                        if let Some(_msg) = conv.messages.iter().find(|m| m.status == MessageStatus::WaitingForPermission) {
+                            // Use the conversation ID which is the interaction ID
+                            let interaction_id = conv.id.clone();
                             let api = self.api_client.clone();
                             return Command::perform(
-                                async move { api.respond_to_permission(&id, false).await },
+                                async move { api.respond_to_permission(&interaction_id, false).await },
                                 Message::PermissionResponseSent
                             );
                         }
@@ -806,6 +915,30 @@ impl BickyApp {
                                 info_parts.push(format!("{:.1}s", seconds));
                             }
                             
+                            // Add tools used
+                            if let Some(tools) = &metadata.tools_used {
+                                if !tools.is_empty() {
+                                    let tool_names = tools.join(", ");
+                                    info_parts.push(format!("🔧 {}", tool_names));
+                                }
+                            }
+                            
+                            // Add worktree context
+                            if let Some(context) = &metadata.worktree_context {
+                                if let Some(branch) = &context.branch {
+                                    let branch_name = branch.strip_prefix("refs/heads/").unwrap_or(branch);
+                                    info_parts.push(format!("🌿 {}", branch_name));
+                                }
+                            }
+                            
+                            // Add tags
+                            if let Some(tags) = &metadata.tags {
+                                if !tags.is_empty() {
+                                    let tag_list = tags.join(", ");
+                                    info_parts.push(format!("🏷️ {}", tag_list));
+                                }
+                            }
+                            
                             if !info_parts.is_empty() {
                                 let info_text = info_parts.join(" • ");
                                 let info_label = container(
@@ -825,7 +958,7 @@ impl BickyApp {
                         // Check if there's a current action in metadata
                         let processing_text = if let Some(metadata) = &msg.metadata {
                             if let Some(action) = &metadata.current_action {
-                                println!("[GUI Display] Showing action: {}", action);
+                                // println!("[GUI Display] Showing action: {}", action);
                                 action.clone()
                             } else {
                                 println!("[GUI Display] No action in metadata");

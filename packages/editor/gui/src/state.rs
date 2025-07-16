@@ -6,7 +6,7 @@ use rand::seq::SliceRandom;
 pub struct Conversation {
     pub id: String,
     pub title: String,
-    pub messages: Vec<Message>,
+    pub messages: Vec<LegacyMessage>,
 }
 
 /// Dialog state for creating worktrees
@@ -107,7 +107,7 @@ pub fn update(state: &mut AppState, action: Action) {
             if !state.input.is_empty() {
                 if let Some(conv_idx) = state.active_conversation {
                     if let Some(conv) = state.conversations.get_mut(conv_idx) {
-                        let message = Message {
+                        let message = LegacyMessage {
                             id: format!("temp-{}", conv.messages.len()),
                             content: state.input.clone(),
                             response: None,

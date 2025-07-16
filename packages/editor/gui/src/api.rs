@@ -32,22 +32,6 @@ impl ApiClient {
             .map_err(|e| e.to_string())
     }
 
-    pub async fn get_status(&self) -> Result<QueueStatus, String> {
-        let resp = self
-            .client
-            .get(format!("{}/status", self.base_url))
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-
-        if !resp.status().is_success() {
-            return Err(format!("Failed to get status: {}", resp.status()));
-        }
-
-        resp.json::<QueueStatus>()
-            .await
-            .map_err(|e| e.to_string())
-    }
 
     pub async fn get_interactions(&self) -> Result<Vec<serde_json::Value>, String> {
         let resp = self
@@ -84,12 +68,31 @@ impl ApiClient {
     }
 
     pub async fn respond_to_permission(&self, interaction_id: &str, approved: bool) -> Result<(), String> {
+        // The server expects a full result submission for permission responses
+        let result = if approved {
+            serde_json::json!({
+                "response": "Permission granted",
+                "metadata": {
+                    "permissionResponse": {
+                        "approved": true
+                    }
+                }
+            })
+        } else {
+            serde_json::json!({
+                "response": "Permission denied",
+                "metadata": {
+                    "permissionResponse": {
+                        "approved": false
+                    }
+                }
+            })
+        };
+
         let resp = self
             .client
-            .post(format!("{}/interactions/{}/permission", self.base_url, interaction_id))
-            .json(&serde_json::json!({
-                "approved": approved
-            }))
+            .post(format!("{}/interactions/{}/result", self.base_url, interaction_id))
+            .json(&result)
             .send()
             .await
             .map_err(|e| e.to_string())?;

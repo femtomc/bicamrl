@@ -112,19 +112,9 @@ export class ClaudeCodeLLMProvider implements LLMProvider {
   
   async completeWithTools(messages: any[], tools: any[], options?: GenerateOptions & { onTokenUpdate?: (tokens: number) => void }): Promise<LLMResponse> {
     try {
-      // Convert messages to a single prompt
-      let prompt = messages.map(msg => {
-        if (msg.role === 'system') {
-          return `System: ${msg.content}`;
-        } else if (msg.role === 'user') {
-          return `Human: ${msg.content}`;
-        } else if (msg.role === 'assistant') {
-          return `Assistant: ${msg.content}`;
-        }
-        return msg.content;
-      }).join('\n\n');
-      
-      prompt += '\n\nAssistant:';
+      // Convert messages to a prompt without role prefixes
+      // This should avoid triggering any built-in Claude Code behaviors
+      const prompt = messages.map(msg => msg.content).join('\n\n');
       
       console.log('[ClaudeCode] Completing with tools, prompt:', prompt.substring(0, 200) + '...');
       
@@ -144,6 +134,9 @@ export class ClaudeCodeLLMProvider implements LLMProvider {
           abortController,
           options: {
             maxTurns: 3, // Allow multiple turns for tool use
+            // Try to disable any built-in system prompts
+            systemPrompt: '',
+            disableSystemPrompt: true,
           },
         })) {
           sdkMessages.push(message);

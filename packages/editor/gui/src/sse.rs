@@ -1,6 +1,6 @@
 use futures::stream::StreamExt;
 use reqwest::Client;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::sync::mpsc;
 
 pub enum SSEMessage {
@@ -44,12 +44,26 @@ pub async fn connect_sse(base_url: String, session_id: Option<String>, tx: mpsc:
                                                 let _ = tx.send(SSEMessage::Connected);
                                             } else if let Some(event_type) = json.get("type").and_then(|v| v.as_str()) {
                                                 match event_type {
-                                                    "interaction_updated" | "interaction_processing" | "interaction_completed" => {
+                                                    "interaction:created" | "interaction:updated" => {
                                                         if let Some(data) = json.get("data") {
-                                                            if let Some(id) = data.get("interactionId").and_then(|v| v.as_str()) {
+                                                            if let Some(interaction) = data.get("interaction") {
+                                                                if let Some(id) = interaction.get("id").and_then(|v| v.as_str()) {
+                                                                    let _ = tx.send(SSEMessage::InteractionUpdate {
+                                                                        id: id.to_string(),
+                                                                        data: interaction.clone()
+                                                                    });
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    "message:added" | "message:updated" => {
+                                                        if let Some(data) = json.get("data") {
+                                                            if let Some(interaction_id) = data.get("interactionId").and_then(|v| v.as_str()) {
+                                                                // For message events, we need to fetch the full interaction
+                                                                // Send an update event with the interaction ID
                                                                 let _ = tx.send(SSEMessage::InteractionUpdate {
-                                                                    id: id.to_string(),
-                                                                    data: data.clone()
+                                                                    id: interaction_id.to_string(),
+                                                                    data: json!({ "refetch": true })
                                                                 });
                                                             }
                                                         }

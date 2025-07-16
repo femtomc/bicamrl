@@ -181,6 +181,13 @@ export class ConversationService {
     });
     
     await this.messageStore.addMessage(message);
+    
+    // Clear currentAction and update last activity
+    await this.interactionStore.updateMetadata(interactionId, {
+      currentAction: null,
+      processor: null,
+      startedAt: null
+    });
     await this.interactionStore.update(interactionId, i => i.updateLastActivity());
   }
 

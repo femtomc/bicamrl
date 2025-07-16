@@ -7,3 +7,5 @@ export { WorktreeAwareTool } from './worktree-aware-tool';
 export { ReadFileTool } from './read-file';
 export { WriteFileTool } from './write-file';
 export { ListDirectoryTool } from './list-directory';
+export { BashTool } from './bash';
+export { GrepTool } from './grep';

@@ -21,6 +21,12 @@
    - Fixed all integration test imports to use named export
    - Verified multi-instance server support working correctly
 
+2. **GUI Processing State Issues** ✅ FIXED (2025-07-16)
+   - Fixed currentAction not showing during processing
+   - Clear currentAction when assistant response is submitted
+   - Added small delay to GUI to allow metadata updates to complete
+   - Processing animations now display correctly
+
 ### HIGH - Architecture Refactoring
 
 1. **API Routes God Object** (`packages/server/src/api/routes.ts`)
@@ -109,15 +115,44 @@
 
 ### Next Architecture Tasks
 
-1. **Rich Message Types**
+1. **GUI Compatibility Fixes** (2025-07-16 Deep Dive)
+   
+   **Critical Issues Found:**
+   - **Type Mismatches**:
+     - MessageRole: GUI missing 'tool' role (only has user/assistant/system)
+     - MessageStatus: GUI missing 'failed' status
+     - InteractionMetadata: GUI version oversimplified (missing worktreeContext, processId, tags)
+     - ToolPermissionRequest: GUI has 'arguments' field that server doesn't expect
+   
+   - **Wrong API Endpoints**:
+     - Permission endpoint: GUI uses `/interactions/{id}/permission` but server expects `/interactions/{id}/result`
+     - Deprecated endpoint: GUI still has `/status` endpoint which no longer exists
+   
+   - **Missing Features**:
+     - No rendering of tool calls in message metadata
+     - No display of failed message status
+     - Not showing all available metadata (only tokens, time, model)
+     - No display of tool execution results
+   
+   **Tasks (Priority Order)**:
+   1. Fix MessageRole enum - add 'tool' role
+   2. Fix MessageStatus - add 'failed' status
+   3. Fix permission endpoint to use `/interactions/{id}/result`
+   4. Remove deprecated `/status` endpoint
+   5. Update InteractionMetadata to match server fields ✅
+   6. Fix ToolPermissionRequest - remove 'arguments' field ✅
+   7. Add proper message metadata display (tool calls, permissions) ✅
+   8. Migrate from LegacyMessage to proper Message types
+
+2. **Rich Message Types**
    - Implement typed message content (text, code, tool calls, errors)
    - Support multi-part messages
    - Add proper tool result handling
 
-3. **GUI Compatibility**
-   - Complete interaction serialization fixes
-   - Ensure flat structure for GUI expectations
-   - Remove all legacy compatibility code
+3. **Remove Legacy Compatibility**
+   - Remove LegacyMessage type from GUI
+   - Clean up conversion functions
+   - Use server's native message format directly
 
 ## Long-term Improvements
 
