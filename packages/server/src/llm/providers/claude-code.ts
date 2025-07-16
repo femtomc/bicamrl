@@ -110,66 +110,6 @@ export class ClaudeCodeLLMProvider implements LLMProvider {
     return mockEmbedding;
   }
   
-  /**
-   * Translate Claude Code's tool names to our standard names
-   */
-  private translateToolName(claudeName: string): string {
-    const translations: Record<string, string> = {
-      'Read': 'read_file',
-      'Write': 'write_file',
-      'LS': 'list_directory',
-      'Bash': 'bash',
-      'Grep': 'grep',
-      'TodoWrite': 'todo_write',
-      // Add more translations as needed
-    };
-    
-    return translations[claudeName] || claudeName.toLowerCase();
-  }
-  
-  /**
-   * Translate Claude Code's tool arguments to our standard format
-   */
-  private translateToolArguments(toolName: string, args: any): any {
-    if (!args || typeof args !== 'object') {
-      return args;
-    }
-    
-    // Clone args to avoid mutation
-    const translated = { ...args };
-    
-    switch (toolName) {
-      case 'Read':
-        // Claude uses 'file_path', we use 'path'
-        if ('file_path' in translated) {
-          translated.path = translated.file_path;
-          delete translated.file_path;
-        }
-        break;
-        
-      case 'Write':
-        // Claude uses 'file_path', we use 'path'
-        if ('file_path' in translated) {
-          translated.path = translated.file_path;
-          delete translated.file_path;
-        }
-        break;
-        
-      case 'Bash':
-        // Bash arguments are usually fine as-is
-        break;
-        
-      case 'LS':
-        // Claude might use 'directory', we use 'path'
-        if ('directory' in translated) {
-          translated.path = translated.directory;
-          delete translated.directory;
-        }
-        break;
-    }
-    
-    return translated;
-  }
   
   async completeWithTools(messages: any[], tools: any[], options?: GenerateOptions & { onTokenUpdate?: (tokens: number) => void }): Promise<LLMResponse> {
     try {
@@ -200,9 +140,7 @@ export class ClaudeCodeLLMProvider implements LLMProvider {
           abortController,
           options: {
             maxTurns: 3, // Allow multiple turns for tool use
-            // Try to disable any built-in system prompts
-            systemPrompt: '',
-            disableSystemPrompt: true,
+            // Use default permission mode - let Claude Code handle it
           },
         })) {
           sdkMessages.push(message);
@@ -260,14 +198,12 @@ export class ClaudeCodeLLMProvider implements LLMProvider {
           if (msg.type === 'assistant' && msg.message && Array.isArray(msg.message.content)) {
             for (const block of msg.message.content) {
               if (block.type === 'tool_use') {
-                // Found a tool call! Translate Claude's names and arguments to our standard format
-                const standardName = this.translateToolName(block.name);
-                const standardArgs = this.translateToolArguments(block.name, block.input);
-                console.log(`[ClaudeCode] Tool call found: ${block.name} -> ${standardName}`, block.input, '->', standardArgs);
+                // Found a tool call! Pass it through as-is
+                console.log(`[ClaudeCode] Tool call found: ${block.name}`, block.input);
                 toolCalls.push({
                   id: block.id,
-                  name: standardName,
-                  arguments: standardArgs
+                  name: block.name,
+                  arguments: block.input
                 });
               }
             }

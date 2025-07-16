@@ -1,10 +1,7 @@
 /**
  * Tool Executor for Wake Process
- * Handles tool execution and permission management
+ * Simply handles permission requests and lets Claude Code execute its own tools
  */
-
-import type { ToolRegistry } from '../../tools';
-import type { LLMTool } from '../../llm/service';
 
 export interface ToolCall {
   id: string;
@@ -20,40 +17,19 @@ export interface ToolExecutionResult {
 
 export class ToolExecutor {
   constructor(
-    private toolRegistry: ToolRegistry,
     private requestPermission: (request: any) => Promise<boolean>
   ) {}
 
-  getAvailableTools(): any[] {
-    const tools = this.toolRegistry.getTools();
-    return tools.map(tool => ({
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.inputSchema
-    }));
-  }
-
   async execute(toolCall: any): Promise<{ success: boolean; result?: any; error?: string }> {
     try {
-      console.log(`[ToolExecutor] Executing tool: ${toolCall.name}`);
+      console.log(`[ToolExecutor] Tool call: ${toolCall.name}`);
       console.log(`[ToolExecutor] Arguments:`, JSON.stringify(toolCall.arguments, null, 2));
       
-      // The provider has already translated tool names to our standard names
-      const tool = this.toolRegistry.getTool(toolCall.name);
-      
-      if (!tool) {
-        console.error(`[ToolExecutor] Tool not found: ${toolCall.name}`);
-        console.error(`[ToolExecutor] Available tools:`, this.toolRegistry.getTools().map(t => t.name));
-        return {
-          success: false,
-          error: `Tool ${toolCall.name} is not supported`
-        };
-      }
-      
-      // Request permission
+      // Request permission for any tool call
       const approved = await this.requestPermission({
         toolName: toolCall.name,
-        description: tool.description
+        description: this.getToolDescription(toolCall.name),
+        arguments: toolCall.arguments
       });
       
       if (!approved) {
@@ -63,14 +39,10 @@ export class ToolExecutor {
         };
       }
       
-      // Execute the tool
-      const result = await tool.execute(toolCall.arguments);
-      console.log(`[ToolExecutor] Tool execution result preview:`, 
-        typeof result === 'string' ? result.substring(0, 100) + '...' : result);
-      
+      // Permission granted - Claude Code will handle the actual execution
       return {
         success: true,
-        result
+        result: 'Permission granted'
       };
     } catch (error: any) {
       console.error('[ToolExecutor] Error:', error);
@@ -79,5 +51,21 @@ export class ToolExecutor {
         error: error.message || 'Unknown error'
       };
     }
+  }
+  
+  private getToolDescription(toolName: string): string {
+    // Provide human-readable descriptions for common Claude Code tools
+    const descriptions: Record<string, string> = {
+      'Read': 'Read the contents of a file',
+      'Write': 'Write or modify a file',
+      'LS': 'List files in a directory',
+      'Bash': 'Execute a shell command',
+      'Grep': 'Search for patterns in files',
+      'TodoWrite': 'Update your todo list',
+      'WebSearch': 'Search the web for information',
+      'MCPTool': 'Execute an MCP (Model Context Protocol) tool'
+    };
+    
+    return descriptions[toolName] || `Execute ${toolName} tool`;
   }
 }

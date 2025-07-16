@@ -6,11 +6,9 @@
 import { loadMindConfig } from '../../config/mind';
 import { LLMService, MockLLMProvider } from '../../llm/service';
 import { ClaudeCodeLLMProvider } from '../../llm/providers/claude-code';
-import { ToolRegistry, ReadFileTool, WriteFileTool, ListDirectoryTool, BashTool, GrepTool, TodoWriteTool } from '../../tools';
 import { WakeApiClient } from './api-client';
 import { SSEHandler } from './sse-handler';
 import { ProgressReporter } from './progress-reporter';
-import { ToolExecutor } from './tool-executor';
 import type { Message } from '../../message/types';
 
 export class WakeProcessor {
@@ -18,7 +16,6 @@ export class WakeProcessor {
   private apiClient: WakeApiClient;
   private sseHandler: SSEHandler;
   private progressReporter: ProgressReporter;
-  private toolExecutor?: ToolExecutor;
   private llmService?: LLMService;
   
   private processedMessageIds = new Set<string>();
@@ -75,23 +72,8 @@ export class WakeProcessor {
     this.llmService.registerProvider('mock', new MockLLMProvider());
     this.llmService.registerProvider('claude_code', new ClaudeCodeLLMProvider());
     
-    // Initialize tools if enabled
-    const enableTools = process.env.ENABLE_TOOLS === 'true';
-    if (enableTools) {
-      console.log('[WakeProcessor] Tools enabled, initializing...');
-      const toolRegistry = new ToolRegistry();
-      toolRegistry.register(new ReadFileTool());
-      toolRegistry.register(new WriteFileTool());
-      toolRegistry.register(new ListDirectoryTool());
-      toolRegistry.register(new BashTool());
-      toolRegistry.register(new GrepTool());
-      toolRegistry.register(new TodoWriteTool());
-      
-      this.toolExecutor = new ToolExecutor(
-        toolRegistry,
-        (request) => this.apiClient.requestToolPermission(request)
-      );
-    }
+    // Claude Code handles its own tools and permissions
+    console.log('[WakeProcessor] Using Claude Code with its built-in tools');
   }
 
   private async loadAndProcessMessages(): Promise<void> {
@@ -151,58 +133,20 @@ export class WakeProcessor {
           content: m.content
         }));
       
-      // Process with LLM
-      const tools = this.toolExecutor?.getAvailableTools() || [];
+      // Process with LLM (Claude Code uses its own tools)
       let result = await this.llmService!.completeWithTools(
         messages,
-        tools
+        [] // Don't pass tools - Claude Code has its own
       );
       
-      // Handle tool calls if any
-      if (result.toolCalls && result.toolCalls.length > 0 && this.toolExecutor) {
-        const toolResults = [];
-        
+      // Claude Code handles tool execution internally
+      // Just track what tools were used for metadata
+      if (result.toolCalls && result.toolCalls.length > 0) {
         for (const toolCall of result.toolCalls) {
           this.toolsUsed.push(toolCall.name);
-          this.progressReporter.updateToolsUsed(this.toolsUsed);
-          
-          const toolResult = await this.toolExecutor.execute(toolCall);
-          toolResults.push({
-            toolCall,
-            result: toolResult
-          });
+          console.log(`[WakeProcessor] Claude Code used tool: ${toolCall.name}`);
         }
-        
-        // If tools were executed, we need to make another LLM call with the results
-        // Add tool results to the conversation
-        const messagesWithTools = [...messages];
-        
-        // Add assistant message with tool calls
-        messagesWithTools.push({
-          role: 'assistant',
-          content: result.content || 'I need to use a tool to help with this.'
-        });
-        
-        // Add tool results as user messages
-        for (const { toolCall, result: toolResult } of toolResults) {
-          if (toolResult.success) {
-            messagesWithTools.push({
-              role: 'user',
-              content: `Tool result for ${toolCall.name}: ${toolResult.result}`
-            });
-          } else {
-            messagesWithTools.push({
-              role: 'user',
-              content: `Tool error for ${toolCall.name}: ${toolResult.error}`
-            });
-          }
-        }
-        
-        // Make another LLM call with the tool results
-        result = await this.llmService!.completeWithTools(
-          messagesWithTools,
-          [] // No tools for the follow-up call
-        );
+        this.progressReporter.updateToolsUsed(this.toolsUsed);
       }
       
       // Stop progress reporting
